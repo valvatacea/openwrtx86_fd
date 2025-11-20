@@ -1,0 +1,66 @@
+name: OpenWrt ImageBuilder + AutoResizeRoot
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download ImageBuilder
+        run: |
+          wget https://downloads.openwrt.org/releases/23.05.3/targets/ramips/mt76x8/openwrt-imagebuilder-23.05.3-ramips-mt76x8.Linux-x86_64.tar.xz
+          tar -xf openwrt-imagebuilder-*.tar.xz
+          mv openwrt-imagebuilder-* builder
+
+      - name: Add Auto Resize RootFS Script
+        run: |
+          mkdir -p builder/files/etc/init.d/
+          cat << "EOF" > builder/files/etc/init.d/resize-rootfs
+#!/bin/sh /etc/rc.common
+START=99
+USE_PROCD=1
+
+start_service() {
+
+    ROOTDEV="$(mount | grep 'on / ' | awk '{print $1}')"
+
+    # Skip if already resized
+    if [ -f /etc/.rootfs_resized ]; then
+        exit 0
+    fi
+
+    # Grow partition
+    if command -v growpart >/dev/null 2>&1; then
+        growpart ${ROOTDEV%[0-9]} ${ROOTDEV##*[^0-9]}
+    fi
+
+    # Resize filesystem
+    resize2fs "$ROOTDEV"
+
+    # Mark as done
+    touch /etc/.rootfs_resized
+}
+EOF
+
+          chmod +x builder/files/etc/init.d/resize-rootfs
+
+      - name: Add Dependencies (growpart & resize2fs)
+        run: |
+          echo "CONFIG_PACKAGE_resize2fs=y" >> builder/.config
+          echo "CONFIG_PACKAGE_growpart=y" >> builder/.config
+
+      - name: Build Firmware
+        run: |
+          cd builder
+          make image PROFILE=tl-mr3420-v5 PACKAGES="growpart resize2fs" FILES=files/
+
+      - name: Upload Firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-resize-rootfs
+          path: builder/bin/targets/**/**
