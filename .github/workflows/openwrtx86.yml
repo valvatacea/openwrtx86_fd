@@ -70,17 +70,17 @@ jobs:
         cd openwrt
         mkdir -p files/etc/init.d/
         cat << "EOF" > files/etc/init.d/resize-rootfs
-#!/bin/sh /etc/rc.common
-START=99
-USE_PROCD=1
-start_service() {
-    ROOTDEV="$(mount | grep 'on / ' | awk '{print $1}')"
-    [ -f /etc/.rootfs_resized ] && exit 0
-    command -v growpart >/dev/null 2>&1 && growpart ${ROOTDEV%[0-9]} ${ROOTDEV##*[^0-9]}
-    resize2fs "$ROOTDEV"
-    touch /etc/.rootfs_resized
-}
-EOF
+        #!/bin/sh /etc/rc.common
+        START=99
+        USE_PROCD=1
+        start_service() {
+            ROOTDEV="$(mount | grep 'on / ' | awk '{print $1}')"
+            [ -f /etc/.rootfs_resized ] && exit 0
+            command -v growpart >/dev/null 2>&1 && growpart ${ROOTDEV%[0-9]} ${ROOTDEV##*[^0-9]}
+            resize2fs "$ROOTDEV"
+            touch /etc/.rootfs_resized
+        }
+        EOF
         chmod +x files/etc/init.d/resize-rootfs
 
     # ------------------------------------------------------
