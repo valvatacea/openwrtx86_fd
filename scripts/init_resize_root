@@ -1,0 +1,50 @@
+#!/bin/sh /etc/rc.common
+# Auto-resize root filesystem to fill the USB disk (first boot)
+
+START=99
+STOP=01
+
+start() {
+  logger -t resize_root "Starting resize_root check"
+
+  # hanya jalankan sekali
+  [ -f /etc/resize_root_done ] && return 0
+
+  # cari device root (biasanya /dev/sda3 atau /dev/sda2 tergantung image)
+  root_dev=$(mount | grep "overlay" | sed -n 's/.*on \(\/dev\/[^ ]*\) type.*/\1/p' | head -n1)
+
+  if [ -z "$root_dev" ]; then
+    logger -t resize_root "Cannot detect root device, aborting"
+    return 0
+  fi
+
+  # contoh: /dev/sda3 -> part number
+  disk_dev=$(echo "$root_dev" | sed -E 's/([0-9]+)$//')
+
+  logger -t resize_root "Detected root dev: $root_dev, disk: $disk_dev"
+
+  # gunakan parted untuk mengubah partisi terakhir supaya mengambil seluruh disk
+  if command -v parted >/dev/null 2>&1; then
+    # cari last partition number
+    lastp=$(parted -sm $disk_dev unit B print | tail -n +3 | tail -1 | cut -f1 -d:)
+    if [ -n "$lastp" ]; then
+      # mulai ulang tabel partisi: resize partition to end
+      # WARNING: parted command below overwrites partition table; but safe for new image
+      parted -s $disk_dev resizepart $lastp 100%
+      sleep 1
+      # fsck & resize
+      partprobe $disk_dev || true
+      sleep 1
+      resize2fs $root_dev || true
+    fi
+  else
+    logger -t resize_root "parted not found, skipping resize"
+  fi
+
+  touch /etc/resize_root_done
+  logger -t resize_root "Resize attempt finished"
+}
+
+stop() {
+  :
+}
