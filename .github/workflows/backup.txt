@@ -1,16 +1,36 @@
-name: OpenWrt USB-ready x86_64 HP T620 Full (USB 4GB)
+name: OpenWrt USB-ready x86_64 HP T620 (USB 4GB)
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # Bisa dijalankan manual dari GitHub Actions
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+    # ------------------------------------------------------
+    # 1. Checkout source code repository
+    # ------------------------------------------------------
     - name: Checkout source
       uses: actions/checkout@v4
 
+    # ------------------------------------------------------
+    # 2. Cache OpenWrt feeds & downloads
+    #    Untuk mempercepat build selanjutnya
+    # ------------------------------------------------------
+    - name: Cache OpenWrt feeds
+      uses: actions/cache@v3
+      with:
+        path: |
+          openwrt/downloads
+          openwrt/feeds
+        key: openwrt-feeds-${{ runner.os }}-${{ hashFiles('feeds.conf.default') }}
+        restore-keys: |
+          openwrt-feeds-${{ runner.os }}-
+
+    # ------------------------------------------------------
+    # 3. Install dependencies build environment
+    # ------------------------------------------------------
     - name: Install dependencies
       run: |
         sudo apt-get update
@@ -19,20 +39,20 @@ jobs:
           gettext libssl-dev xsltproc wget unzip zstd ccache \
           python3 python3-dev python3-setuptools python3-pip \
           parted e2fsprogs qemu-utils
-          
-     - name: Set up ccache
-      run: |
-        export CCACHE_DIR=$HOME/.ccache
-        export CCACHE_MAXSIZE=5G
-        ccache -M $CCACHE_MAXSIZE
 
-    - name: Clone OpenWrt
+    # ------------------------------------------------------
+    # 4. Clone full OpenWrt source
+    # ------------------------------------------------------
+    - name: Clone OpenWrt full source
       run: |
         git clone --depth 1 https://git.openwrt.org/openwrt/openwrt.git openwrt
         cd openwrt
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
+    # ------------------------------------------------------
+    # 5. Remove Python packages yang bikin warning
+    # ------------------------------------------------------
     - name: Remove Python packages causing warnings
       run: |
         cd openwrt
@@ -42,6 +62,9 @@ jobs:
         rm -rf package/feeds/packages/python-docker
         rm -rf package/feeds/packages/python-incremental
 
+    # ------------------------------------------------------
+    # 6. Auto-resize rootfs untuk USB kecil
+    # ------------------------------------------------------
     - name: Add auto-resize rootfs
       run: |
         cd openwrt
@@ -60,25 +83,9 @@ jobs:
         EOF
         chmod +x files/etc/init.d/resize-rootfs
 
-    - name: Set LAN IP to 192.168.1.2
-      run: |
-        cd openwrt
-        mkdir -p files/etc/config
-        cat << "EOF" > files/etc/config/network
-        config interface 'loopback'
-            option ifname 'lo'
-            option proto 'static'
-            option ipaddr '127.0.0.1'
-            option netmask '255.0.0.0'
-        
-        config interface 'lan'
-            option type 'bridge'
-            option ifname 'eth0'
-            option proto 'static'
-            option ipaddr '192.168.1.2'
-            option netmask '255.255.255.0'
-        EOF
-
+    # ------------------------------------------------------
+    # 7. Tambahkan feeds tambahan (Passwall & OpenClash)
+    # ------------------------------------------------------
     - name: Add feeds (Passwall & OpenClash)
       run: |
         cd openwrt
@@ -88,45 +95,44 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Configure Build for HP T620 Full
+    # ------------------------------------------------------
+    # 8. Konfigurasi build untuk HP T620 x86_64
+    #    Tambah paket, theme, IP default
+    # ------------------------------------------------------
+    - name: Configure Build for HP T620 x86_64
       run: |
         cd openwrt
         make defconfig
-        # Core packages
+        # Paket tambahan
         echo "CONFIG_PACKAGE_kmod-usb-net-rndis=y" >> .config
         echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
         echo "CONFIG_PACKAGE_ipset=y" >> .config
         echo "CONFIG_PACKAGE_ip-full=y" >> .config
-        # WiFi USB modules
-        echo "CONFIG_PACKAGE_kmod-rtl8xxxu=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-rtl8192cu=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-rtl8812au=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-rtl8814au=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-ath9k-htc=y" >> .config
-        echo "CONFIG_PACKAGE_kmod-rt2800-usb=y" >> .config
-        # LuCI full
         echo "CONFIG_PACKAGE_luci=y" >> .config
-        echo "CONFIG_PACKAGE_luci-ssl=y" >> .config
-        echo "CONFIG_PACKAGE_luci-app-statistics=y" >> .config
-        echo "CONFIG_PACKAGE_luci-app-opkg=y" >> .config
-        # DNSMasq full
-        echo "CONFIG_PACKAGE_dnsmasq-full=y" >> .config
-        # Passwall & OpenClash
         echo "CONFIG_PACKAGE_luci-app-passwall=y" >> .config
         echo "CONFIG_PACKAGE_luci-app-openclash=y" >> .config
-        # Tema Alpha
         echo "CONFIG_PACKAGE_luci-theme-alpha=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-statistics=y" >> .config
+        echo "CONFIG_PACKAGE_dnsmasq-full=y" >> .config
+        # Ubah IP default
+        echo "CONFIG_IP_ADDRESS='192.168.1.2'" >> .config
         make defconfig
 
+    # ------------------------------------------------------
+    # 9. Build firmware
+    # ------------------------------------------------------
     - name: Build firmware
       run: |
         cd openwrt
         make -j$(nproc) V=s
 
-    - name: Create USB-ready image (~3.8GB)
+    # ------------------------------------------------------
+    # 10. Buat USB-ready image (~4GB)
+    # ------------------------------------------------------
+    - name: Create USB-ready image (~4GB)
       run: |
         cd openwrt/bin/targets/x86/64
-        qemu-img create -f raw openwrt-x86-64-t620-usb.img 3.8G
+        qemu-img create -f raw openwrt-x86-64-t620-usb.img 4G
         sudo losetup -fP openwrt-x86-64-t620-usb.img
         LOOPDEV=$(losetup -j openwrt-x86-64-t620-usb.img | cut -d: -f1)
         sudo parted $LOOPDEV mklabel msdos
@@ -138,8 +144,11 @@ jobs:
         sudo umount mnt
         sudo losetup -d $LOOPDEV
 
+    # ------------------------------------------------------
+    # 11. Upload USB-ready image sebagai artifact
+    # ------------------------------------------------------
     - name: Upload USB-ready image
       uses: actions/upload-artifact@v4
       with:
-        name: openwrt-x86-64-t620-usb-4gb-full
+        name: openwrt-x86-64-t620-usb-4gb
         path: openwrt/bin/targets/x86/64/openwrt-x86-64-t620-usb.img
