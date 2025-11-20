@@ -1,0 +1,92 @@
+name: OpenWrt HP-T620 Full Build (24.10) - No Python3 Warning
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Download ImageBuilder 24.10 (x86_64)
+      run: |
+        wget https://downloads.openwrt.org/releases/24.10.4/targets/x86/64/openwrt-imagebuilder-24.10.4-x86-64.Linux-x86_64.tar.xz
+        tar -xf openwrt-imagebuilder-*.tar.xz
+        mv openwrt-imagebuilder-* builder
+
+    - name: Add Auto Resize Script
+      run: |
+        mkdir -p builder/files/etc/init.d/
+        cat << "EOF" > builder/files/etc/init.d/resize-rootfs
+#!/bin/sh /etc/rc.common
+START=99
+USE_PROCD=1
+
+start_service() {
+    ROOTDEV="$(mount | grep 'on / ' | awk '{print $1}')"
+    if [ -f /etc/.rootfs_resized ]; then
+        exit 0
+    fi
+    if command -v growpart >/dev/null 2>&1; then
+        growpart ${ROOTDEV%[0-9]} ${ROOTDEV##*[^0-9]}
+    fi
+    resize2fs "$ROOTDEV"
+    touch /etc/.rootfs_resized
+}
+EOF
+        chmod +x builder/files/etc/init.d/resize-rootfs
+
+    - name: Add Custom Feeds (Passwall + OpenClash)
+      run: |
+        # Passwall + OpenClash feeds
+        echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall-packages" >> builder/feeds.conf.default
+        echo "src-git passwall_luci https://github.com/xiaorouji/openwrt-passwall" >> builder/feeds.conf.default
+        echo "src-git openclash https://github.com/vernesong/OpenClash" >> builder/feeds.conf.default
+
+        # Hapus semua paket Python yang menimbulkan warning
+        rm -rf builder/package/feeds/packages/fail2ban
+        rm -rf builder/package/feeds/packages/flent
+        rm -rf builder/package/feeds/packages/python-babel
+        rm -rf builder/package/feeds/packages/python-docker
+        rm -rf builder/package/feeds/packages/python-incremental
+
+        cd builder
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: Build firmware
+      run: |
+        cd builder
+        make image PROFILE=generic \
+        PACKAGES="\
+        luci luci-ssl luci-mod-admin-full luci-mod-network luci-mod-status luci-mod-system \
+        luci-theme-alpha \
+        dnsmasq-full \
+        ipset ip-full kmod-tun \
+        iptables ip6tables iptables-mod-nat iptables-mod-tproxy \
+        kmod-usb-storage kmod-fs-ext4 kmod-amd64-microcode \
+        kmod-usb2 kmod-usb3 usb-modeswitch \
+        kmod-usb-net kmod-usb-net-cdc-ether kmod-usb-net-rndis \
+        wireless-tools iw iwinfo wpad-basic-mbedtls \
+        kmod-rtl8188eu kmod-rtl8192cu kmod-rtl8192eu kmod-rtl8xxxu \
+        rtl8821cu-firmware rtl8812au-ct rtl88x2bu-firmware \
+        kmod-rt2800-usb kmod-mt76x0u kmod-mt76x2u \
+        kmod-ath9k-htc ath9k-htc-firmware \
+        growpart resize2fs \
+        openclash \
+        luci-app-passwall passwall \
+        luci-app-statistics collectd collectd-mod-cpu collectd-mod-load collectd-mod-memory \
+        collectd-mod-network collectd-mod-disk collectd-mod-uptime collectd-mod-iwinfo \
+        luci-app-nlbwmon \
+        wget-ssl curl \
+        " \
+        FILES=files/
+
+    - name: Upload Firmware
+      uses: actions/upload-artifact@v4
+      with:
+        name: openwrt-hp-t620-full-24.10-clean
+        path: builder/bin/targets/x86/64/*
