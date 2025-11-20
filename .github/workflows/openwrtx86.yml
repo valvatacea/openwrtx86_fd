@@ -1,55 +1,57 @@
-name: OpenWrt ImageBuilder x86_64 HP T620 (USB Ready)
+name: OpenWrt x86_64 ImageBuilder + Passwall - USB Ready
 
+# Workflow hanya berjalan jika dipicu manual dari GitHub Actions
 on:
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
-    # ------------------------------------------------------
+    # --------------------------------------------------
+    # 1. Checkout repository
+    # --------------------------------------------------
     - name: Checkout
       uses: actions/checkout@v4
 
-    # ------------------------------------------------------
-    # Download OpenWrt ImageBuilder
-    # ------------------------------------------------------
-    - name: Download ImageBuilder
+    # --------------------------------------------------
+    # 2. Install dependencies required for ImageBuilder
+    # --------------------------------------------------
+    - name: Install dependencies
       run: |
-        wget https://downloads.openwrt.org/releases/24.10.0/targets/x86/64/openwrt-imagebuilder-24.10.0-x86-64.Linux-x86_64.tar.zst
-        tar -I zstd -xf openwrt-imagebuilder-24.10.0-x86-64.Linux-x86_64.tar.zst
+        sudo apt-get update
+        sudo apt-get install -y wget zstd tar xz-utils squashfs-tools \
+          qemu-utils dosfstools e2fsprogs parted rsync unzip file \
+          build-essential gawk python3 curl
+
+    # --------------------------------------------------
+    # 3. Download ImageBuilder untuk x86_64
+    # --------------------------------------------------
+    - name: Download ImageBuilder x86_64
+      run: |
+        IMGVER="24.10.4"
+        URL="https://downloads.openwrt.org/releases/${IMGVER}/targets/x86/64/openwrt-imagebuilder-${IMGVER}-x86-64.Linux-x86_64.tar.zst"
+
+        wget -q --show-progress "$URL" -O imagebuilder.tar.zst
+        tar --use-compress-program=unzstd -xvf imagebuilder.tar.zst
+
+        # Gunakan folder bernama "imagebuilder" agar mudah
         mv openwrt-imagebuilder-* imagebuilder
 
-    # ------------------------------------------------------
-    # Auto-resize rootfs script
-    # ------------------------------------------------------
-    - name: Add auto-resize script
-      run: |
-        mkdir -p imagebuilder/files/etc/init.d/
-        cat << "EOF" > imagebuilder/files/etc/init.d/resize-rootfs
-        #!/bin/sh /etc/rc.common
-        START=99
-        USE_PROCD=1
-        start_service() {
-            ROOTDEV="$(mount | grep 'on / ' | awk '{print $1}')"
-            [ -f /etc/.rootfs_resized ] && exit 0
-            command -v growpart >/dev/null 2>&1 && growpart ${ROOTDEV%[0-9]} ${ROOTDEV##*[^0-9]}
-            resize2fs "$ROOTDEV"
-            touch /etc/.rootfs_resized
-        }
-        EOF
-        chmod +x imagebuilder/files/etc/init.d/resize-rootfs
-
-    # ------------------------------------------------------
-    # Custom Files (Network config – Change IP)
-    # ------------------------------------------------------
-    - name: Modify default LAN IP to 192.168.1.2
+    # --------------------------------------------------
+    # 4. Tambahkan file custom (IP LAN + auto resize rootfs)
+    # --------------------------------------------------
+    - name: Add custom files (network + autoresize)
       run: |
         mkdir -p imagebuilder/files/etc/config
-        cat << "EOF" > imagebuilder/files/etc/config/network
+        mkdir -p imagebuilder/files/etc/init.d
+
+        # Konfigurasi IP LAN = 192.168.1.2
+        cat > imagebuilder/files/etc/config/network <<'EOF'
         config interface 'loopback'
-                option ifname 'lo'
+                option device 'lo'
                 option proto 'static'
                 option ipaddr '127.0.0.1'
                 option netmask '255.0.0.0'
@@ -59,55 +61,141 @@ jobs:
                 option proto 'static'
                 option ipaddr '192.168.1.2'
                 option netmask '255.255.255.0'
-                option gateway '192.168.1.1'
-                option dns '8.8.8.8'
         EOF
 
-    # ------------------------------------------------------
-    # Build with ImageBuilder
-    # ------------------------------------------------------
-    - name: Build OpenWrt image
+        # Script untuk auto expand rootfs pada boot pertama
+        cat > imagebuilder/files/etc/init.d/resize-rootfs <<'EOF'
+        #!/bin/sh /etc/rc.common
+        START=99
+        start() {
+          ROOTDEV="$(mount | grep ' on / ' | awk '{print $1}')"
+          [ -f /etc/.rootfs_resized ] && exit 0
+          if command -v growpart >/dev/null 2>&1; then
+            growpart ${ROOTDEV%[0-9]} ${ROOTDEV##*[^0-9]} || true
+          fi
+          resize2fs "$ROOTDEV" || true
+          touch /etc/.rootfs_resized
+        }
+        EOF
+        chmod +x imagebuilder/files/etc/init.d/resize-rootfs
+
+    # --------------------------------------------------
+    # 5. Tambahkan Passwall feed (compatible for ImageBuilder)
+    # --------------------------------------------------
+    - name: Add Passwall feed
+      run: |
+        echo "Adding Passwall feeds..."
+        cat >> imagebuilder/repositories.conf << "EOF"
+        src/gz passwall_luci https://openwrt.proxy.19gs.cn/packages/x86_64/passwall_luci
+        src/gz passwall_core https://openwrt.proxy.19gs.cn/packages/x86_64/passwall
+        src/gz passwall_packages https://openwrt.proxy.19gs.cn/packages/x86_64/packages
+        EOF
+
+    # --------------------------------------------------
+    # 6. Build firmware menggunakan ImageBuilder
+    # --------------------------------------------------
+    - name: Build firmware (LuCI, USB, WiFi, Passwall)
       run: |
         cd imagebuilder
-        make image PROFILE="generic" \
-          PACKAGES="\
-            luci luci-base luci-ssl \
-            dnsmasq-full \
-            luci-app-openclash \
-            luci-app-passwall \
-            luci-app-statistics collectd collectd-mod-interface collectd-mod-iwinfo collectd-mod-cpu collectd-mod-memory \
-            luci-theme-alpha \
-            kmod-usb-net-rndis kmod-usb-net kmod-usb2 kmod-usb3 \
-            kmod-tun ipset ip-full \
-            kmod-rtl8xxxu kmod-rtl8192cu kmod-rt2800-usb kmod-ath9k-htc \
-          " \
-          FILES="files"
 
-    # ------------------------------------------------------
-    # Create 4GB USB Ready Image
-    # ------------------------------------------------------
-    - name: Create USB-ready image (4GB)
+        make image PROFILE="generic" \
+          FILES="files" \
+          PACKAGES="\
+            # LuCI Full
+            luci luci-ssl luci-app-opkg luci-app-firewall luci-app-statistics \
+            luci-theme-alpha luci-proto-ppp \
+            
+            # Sistem networking lebih lengkap
+            dnsmasq-full ip-full \
+            
+            # Driver USB & RNDIS untuk Android tethering
+            kmod-usb-net kmod-usb-net-rndis kmod-usb-net-cdc-ether \
+            kmod-usb-net-cdc-ncm kmod-usb-net-ipheth \
+            
+            # Driver WiFi USB umum
+            kmod-rtl8xxxu kmod-rtl8192cu kmod-rtl8188eu kmod-mt7601u \
+            
+            # Tools penting
+            wget-ssl curl ca-bundle \
+            
+            # Passwall + dependencies
+            luci-app-passwall chinadns-ng \
+            v2ray-core xray-core sing-box \
+            v2ray-geoip v2ray-geosite hysteria \
+          "
+
+    # --------------------------------------------------
+    # 7. List file hasil build dari ImageBuilder
+    # --------------------------------------------------
+    - name: Locate generated OpenWrt artifacts
       run: |
         cd imagebuilder/bin/targets/x86/64
-        qemu-img create -f raw openwrt-t620-usb.img 4G
-        sudo losetup -fP openwrt-t620-usb.img
-        LOOPDEV=$(losetup -j openwrt-t620-usb.img | cut -d: -f1)
+        ls -lah
 
-        sudo parted $LOOPDEV mklabel msdos
-        sudo parted -a optimal $LOOPDEV mkpart primary ext4 1MiB 100%
-        sudo mkfs.ext4 ${LOOPDEV}p1
+    # --------------------------------------------------
+    # 8. Buat USB image 4GB (ext4 rootfs)
+    # --------------------------------------------------
+    - name: Create USB-ready raw image (~4GB) and extract rootfs
+      run: |
+        cd imagebuilder/bin/targets/x86/64
 
+        # Cari rootfs hasil ImageBuilder
+        ROOTFS_TAR=$(ls *rootfs*.tar* 2>/dev/null | head -n1 || true)
+        SQUASH_IMG=$(ls *squashfs*.img 2>/dev/null | head -n1 || true)
+
+        if [ -n "$ROOTFS_TAR" ]; then
+          echo "Found rootfs archive: $ROOTFS_TAR"
+          ROOTFS_FILE="$ROOTFS_TAR"
+
+        elif [ -n "$SQUASH_IMG" ]; then
+          echo "Found squashfs image: $SQUASH_IMG"
+          unsquashfs -d tmproot $SQUASH_IMG
+          tar -C tmproot -cf openwrt-rootfs-from-squashfs.tar .
+          ROOTFS_FILE="openwrt-rootfs-from-squashfs.tar"
+
+        else
+          echo "No rootfs archive or squashfs found!"
+          exit 1
+        fi
+
+        # Buat file img 4GB
+        IMGNAME="openwrt-x86-64-usb-4G.img"
+        qemu-img create -f raw "$IMGNAME" 4G
+
+        # Create partition table + ext4
+        LOOP=$(sudo losetup --show -fP "$IMGNAME")
+        sudo parted -s "$LOOP" mklabel msdos
+        sudo parted -s "$LOOP" mkpart primary ext4 1MiB 100%
+        sleep 1
+
+        PART="${LOOP}p1"
+        sudo mkfs.ext4 -F "$PART"
         mkdir -p mnt
-        sudo mount ${LOOPDEV}p1 mnt
-        sudo tar -xpf openwrt-x86-64-generic-squashfs-rootfs.tar.gz -C mnt
-        sudo umount mnt
-        sudo losetup -d $LOOPDEV
+        sudo mount "$PART" mnt
 
-    # ------------------------------------------------------
-    # Upload Artifact
-    # ------------------------------------------------------
-    - name: Upload USB Image
+        # Extract rootfs ke dalam ext4
+        FILE="$ROOTFS_FILE"
+        if file "$FILE" | grep -qi gzip; then
+          sudo tar -xzf "$FILE" -C mnt
+        else
+          sudo tar -xpf "$FILE" -C mnt
+        fi
+
+        sudo chmod +x mnt/etc/init.d/* || true
+        sudo umount mnt
+        sudo losetup -d "$LOOP"
+
+        echo "USB image created: $IMGNAME"
+        ls -lh "$IMGNAME"
+
+    # --------------------------------------------------
+    # 9. Upload hasil build sebagai artifact
+    # --------------------------------------------------
+    - name: Upload firmware artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: openwrt-x86-64-t620-usb
-        path: imagebuilder/bin/targets/x86/64/openwrt-t620-usb.img
+        name: openwrt-imagebuilder-artifacts
+        path: |
+          imagebuilder/bin/targets/x86/64/*.img
+          imagebuilder/bin/targets/x86/64/*.tar.gz
+          imagebuilder/bin/targets/x86/64/openwrt-x86-64-usb-4G.img
