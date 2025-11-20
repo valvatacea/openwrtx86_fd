@@ -16,16 +16,21 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y zstd
 
-    - name: Download ImageBuilder 24.10 (x86_64, .tar.zst)
+    - name: Download & Extract ImageBuilder 24.10 (x86_64, .tar.zst)
       run: |
         wget https://downloads.openwrt.org/releases/24.10.4/targets/x86/64/openwrt-imagebuilder-24.10.4-x86-64.Linux-x86_64.tar.zst
-        tar --use-compress-program=unzstd -xf openwrt-imagebuilder-*.tar.zst
-        mv openwrt-imagebuilder-* builder
+        tar --use-compress-program=unzstd -xf openwrt-imagebuilder-24.10.4-x86-64.Linux-x86_64.tar.zst
+
+    - name: Set Builder Directory
+      run: |
+        # Folder hasil extract
+        export BUILDER_DIR=openwrt-imagebuilder-24.10.4-x86-64.Linux-x86_64
+        echo "BUILDER_DIR=$BUILDER_DIR" >> $GITHUB_ENV
 
     - name: Add Auto Resize Script
       run: |
-        mkdir -p builder/files/etc/init.d/
-        cat << "EOF" > builder/files/etc/init.d/resize-rootfs
+        mkdir -p $BUILDER_DIR/files/etc/init.d/
+        cat << "EOF" > $BUILDER_DIR/files/etc/init.d/resize-rootfs
         #!/bin/sh /etc/rc.common
         START=99
         USE_PROCD=1
@@ -42,29 +47,28 @@ jobs:
             touch /etc/.rootfs_resized
         }
         EOF
-        chmod +x builder/files/etc/init.d/resize-rootfs
+        chmod +x $BUILDER_DIR/files/etc/init.d/resize-rootfs
 
     - name: Add Custom Feeds (Passwall + OpenClash)
       run: |
-        # Add feeds
-        echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall-packages" >> builder/feeds.conf.default
-        echo "src-git passwall_luci https://github.com/xiaorouji/openwrt-passwall" >> builder/feeds.conf.default
-        echo "src-git openclash https://github.com/vernesong/OpenClash" >> builder/feeds.conf.default
+        echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall-packages" >> $BUILDER_DIR/feeds.conf.default
+        echo "src-git passwall_luci https://github.com/xiaorouji/openwrt-passwall" >> $BUILDER_DIR/feeds.conf.default
+        echo "src-git openclash https://github.com/vernesong/OpenClash" >> $BUILDER_DIR/feeds.conf.default
 
-        # Remove Python packages that cause python3-distutils warning
-        rm -rf builder/package/feeds/packages/fail2ban || true
-        rm -rf builder/package/feeds/packages/flent || true
-        rm -rf builder/package/feeds/packages/python-babel || true
-        rm -rf builder/package/feeds/packages/python-docker || true
-        rm -rf builder/package/feeds/packages/python-incremental || true
+        # Hapus paket Python yang menimbulkan warning
+        rm -rf $BUILDER_DIR/package/feeds/packages/fail2ban || true
+        rm -rf $BUILDER_DIR/package/feeds/packages/flent || true
+        rm -rf $BUILDER_DIR/package/feeds/packages/python-babel || true
+        rm -rf $BUILDER_DIR/package/feeds/packages/python-docker || true
+        rm -rf $BUILDER_DIR/package/feeds/packages/python-incremental || true
 
-        cd builder
+        cd $BUILDER_DIR
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
     - name: Build firmware
       run: |
-        cd builder
+        cd $BUILDER_DIR
         make image PROFILE=generic \
         PACKAGES="\
         luci luci-ssl luci-mod-admin-full luci-mod-network luci-mod-status luci-mod-system \
@@ -94,4 +98,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: openwrt-hp-t620-full-24.10-clean
-        path: builder/bin/targets/x86/64/*
+        path: $BUILDER_DIR/bin/targets/x86/64/*
