@@ -1,4 +1,4 @@
-name: OpenWrt x86_64 ImageBuilder + Auto IPK (luci-theme-alpha + OpenClash) - USB Ready
+name: OpenWrt x86_64 ImageBuilder + Manual IPK + Full Packages - USB Ready
 
 on:
   workflow_dispatch:
@@ -6,21 +6,27 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
+    # --------------------------------------------------
+    # 1. Checkout repository
+    # --------------------------------------------------
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    # --------------------------------------------------
+    # 2. Install dependencies
+    # --------------------------------------------------
     - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y wget zstd tar xz-utils squashfs-tools \
           qemu-utils dosfstools e2fsprogs parted rsync unzip file \
-          build-essential gawk python3 curl jq
+          build-essential gawk python3 curl
 
     # --------------------------------------------------
-    # 1. Detect latest OpenWrt release
+    # 3. Detect latest OpenWrt release
     # --------------------------------------------------
     - name: Detect latest OpenWrt release
       id: detect_release
@@ -29,7 +35,7 @@ jobs:
         echo "LATEST_RELEASE=$LATEST" >> $GITHUB_ENV
 
     # --------------------------------------------------
-    # 2. Download ImageBuilder
+    # 4. Download ImageBuilder
     # --------------------------------------------------
     - name: Download ImageBuilder
       run: |
@@ -39,28 +45,22 @@ jobs:
         mv openwrt-imagebuilder-* imagebuilder
 
     # --------------------------------------------------
-    # 3. Download latest luci-theme-alpha IPK
+    # 5. Download ipk files (manual URL)
     # --------------------------------------------------
-    - name: Download latest luci-theme-alpha IPK
+    - name: Download ipk files (manual URL)
       run: |
         mkdir -p imagebuilder/files/tmp/ipk
-        ALPHA_URL=$(curl -s https://api.github.com/repos/username/luci-theme-alpha/releases/latest \
-          | jq -r '.assets[] | select(.name|test("x86_64.*\\.ipk")) | .browser_download_url')
-        echo "Downloading luci-theme-alpha: $ALPHA_URL"
-        wget -O imagebuilder/files/tmp/ipk/luci-theme-alpha.ipk "$ALPHA_URL"
+
+        # luci-theme-alpha
+        wget -O imagebuilder/files/tmp/ipk/luci-theme-alpha4_4.0.1-beta-12_all.ipk \
+          https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk
+
+        # OpenClash
+        wget -O imagebuilder/files/tmp/ipk/luci-app-openclash_0.47.028_all.ipk \
+          https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk
 
     # --------------------------------------------------
-    # 4. Download latest OpenClash IPK
-    # --------------------------------------------------
-    - name: Download latest OpenClash IPK
-      run: |
-        CLASH_URL=$(curl -s https://api.github.com/repos/vernesong/OpenClash/releases/latest \
-          | jq -r '.assets[] | select(.name|test("x86_64.*\\.ipk")) | .browser_download_url')
-        echo "Downloading OpenClash: $CLASH_URL"
-        wget -O imagebuilder/files/tmp/ipk/luci-app-openclash.ipk "$CLASH_URL"
-
-    # --------------------------------------------------
-    # 5. Auto-install IPK on first boot
+    # 6. Auto-install IPK on first boot
     # --------------------------------------------------
     - name: Auto-install IPK on first boot
       run: |
@@ -77,7 +77,7 @@ jobs:
         chmod +x imagebuilder/files/etc/uci-defaults/99-install-ipk
 
     # --------------------------------------------------
-    # 6. Add custom network + resize-rootfs
+    # 7. Add custom network + resize-rootfs
     # --------------------------------------------------
     - name: Add custom network + resize-rootfs
       run: |
@@ -114,24 +114,22 @@ jobs:
         chmod +x imagebuilder/files/etc/init.d/resize-rootfs
 
     # --------------------------------------------------
-    # 7. Build firmware
+    # 8. Build firmware
     # --------------------------------------------------
     - name: Build firmware
       run: |
         cd imagebuilder
         PACKAGES=(
-          luci luci-ssl luci-app-opkg luci-app-firewall luci-app-statistics
-          dnsmasq-full ip-full
-          kmod-usb-net kmod-usb-net-rndis kmod-usb-net-cdc-ether \
-          kmod-usb-net-cdc-ncm kmod-usb-net-ipheth
-          kmod-rtl8xxxu kmod-rtl8192cu kmod-mt7601u
-          wget-ssl curl ca-bundle
+          luci luci-base dnsmasq-full bash curl ca-bundle ipset ip-full
+          ruby ruby-yaml unzip
+          iptables kmod-ipt-nat iptables-mod-tproxy iptables-mod-extra
+          kmod-tun luci-compat ip6tables-mod-nat kmod-inet-diag kmod-nft-tproxy
         )
         PKG_STR=$(printf "%s " "${PACKAGES[@]}")
         make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
 
     # --------------------------------------------------
-    # 8. Create USB image (~4GB)
+    # 9. Create USB image (~4GB)
     # --------------------------------------------------
     - name: Create USB image (~4GB)
       run: |
@@ -175,7 +173,7 @@ jobs:
         ls -lh "$IMGNAME"
 
     # --------------------------------------------------
-    # 9. Upload artifacts
+    # 10. Upload artifacts
     # --------------------------------------------------
     - name: Upload firmware artifacts
       uses: actions/upload-artifact@v4
