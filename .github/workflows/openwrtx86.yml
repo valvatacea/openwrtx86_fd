@@ -1,4 +1,4 @@
-name: OpenWrt x86_64 ImageBuilder + Passwall - USB Ready (Automated)
+name: OpenWrt x86_64 ImageBuilder + Auto IPK (luci-theme-alpha + OpenClash) - USB Ready
 
 on:
   workflow_dispatch:
@@ -6,14 +6,12 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
-    # 1. Checkout repo
-    - name: Checkout
+    - name: Checkout repository
       uses: actions/checkout@v4
 
-    # 2. Install dependencies
     - name: Install dependencies
       run: |
         sudo apt-get update
@@ -21,24 +19,67 @@ jobs:
           qemu-utils dosfstools e2fsprogs parted rsync unzip file \
           build-essential gawk python3 curl jq
 
-    # 3. Detect latest OpenWrt x86_64 release
+    # --------------------------------------------------
+    # 1. Detect latest OpenWrt release
+    # --------------------------------------------------
     - name: Detect latest OpenWrt release
       id: detect_release
       run: |
         LATEST=$(curl -s https://downloads.openwrt.org/releases/ | grep -Po 'href="\K[0-9.]+(?=/")' | sort -V | tail -1)
         echo "LATEST_RELEASE=$LATEST" >> $GITHUB_ENV
-        echo "Latest OpenWrt release detected: $LATEST"
 
-    # 4. Download ImageBuilder
-    - name: Download ImageBuilder x86_64
+    # --------------------------------------------------
+    # 2. Download ImageBuilder
+    # --------------------------------------------------
+    - name: Download ImageBuilder
       run: |
         URL="https://downloads.openwrt.org/releases/${LATEST_RELEASE}/targets/x86/64/openwrt-imagebuilder-${LATEST_RELEASE}-x86-64.Linux-x86_64.tar.zst"
         wget -q --show-progress "$URL" -O imagebuilder.tar.zst
         tar --use-compress-program=unzstd -xvf imagebuilder.tar.zst
         mv openwrt-imagebuilder-* imagebuilder
 
-    # 5. Add custom files (network + autoresize)
-    - name: Add custom files
+    # --------------------------------------------------
+    # 3. Download latest luci-theme-alpha IPK
+    # --------------------------------------------------
+    - name: Download latest luci-theme-alpha IPK
+      run: |
+        mkdir -p imagebuilder/files/tmp/ipk
+        ALPHA_URL=$(curl -s https://api.github.com/repos/username/luci-theme-alpha/releases/latest \
+          | jq -r '.assets[] | select(.name|test("x86_64.*\\.ipk")) | .browser_download_url')
+        echo "Downloading luci-theme-alpha: $ALPHA_URL"
+        wget -O imagebuilder/files/tmp/ipk/luci-theme-alpha.ipk "$ALPHA_URL"
+
+    # --------------------------------------------------
+    # 4. Download latest OpenClash IPK
+    # --------------------------------------------------
+    - name: Download latest OpenClash IPK
+      run: |
+        CLASH_URL=$(curl -s https://api.github.com/repos/vernesong/OpenClash/releases/latest \
+          | jq -r '.assets[] | select(.name|test("x86_64.*\\.ipk")) | .browser_download_url')
+        echo "Downloading OpenClash: $CLASH_URL"
+        wget -O imagebuilder/files/tmp/ipk/luci-app-openclash.ipk "$CLASH_URL"
+
+    # --------------------------------------------------
+    # 5. Auto-install IPK on first boot
+    # --------------------------------------------------
+    - name: Auto-install IPK on first boot
+      run: |
+        mkdir -p imagebuilder/files/etc/uci-defaults
+        cat > imagebuilder/files/etc/uci-defaults/99-install-ipk <<'EOF'
+        #!/bin/sh
+        IPK_DIR="/tmp/ipk"
+        if [ -d "$IPK_DIR" ]; then
+          for f in "$IPK_DIR"/*.ipk; do
+            [ -f "$f" ] && opkg install "$f"
+          done
+        fi
+        EOF
+        chmod +x imagebuilder/files/etc/uci-defaults/99-install-ipk
+
+    # --------------------------------------------------
+    # 6. Add custom network + resize-rootfs
+    # --------------------------------------------------
+    - name: Add custom network + resize-rootfs
       run: |
         mkdir -p imagebuilder/files/etc/config
         mkdir -p imagebuilder/files/etc/init.d
@@ -72,45 +113,29 @@ jobs:
         EOF
         chmod +x imagebuilder/files/etc/init.d/resize-rootfs
 
-    # 6. Add Passwall feed dynamically
-    - name: Add Passwall feed
-      run: |
-        FEED_BASE="https://openwrt.proxy.19gs.cn/packages/x86_64"
-        cat >> imagebuilder/repositories.conf <<EOF
-        src/gz passwall_luci ${FEED_BASE}/passwall_luci
-        src/gz passwall_core ${FEED_BASE}/passwall
-        src/gz passwall_packages ${FEED_BASE}/packages
-        EOF
-
-    # 7. Build firmware (modular & safe)
+    # --------------------------------------------------
+    # 7. Build firmware
+    # --------------------------------------------------
     - name: Build firmware
       run: |
         cd imagebuilder
-
         PACKAGES=(
-          luci luci-ssl luci-app-opkg luci-app-firewall luci-app-statistics luci-theme-alpha luci-proto-ppp
+          luci luci-ssl luci-app-opkg luci-app-firewall luci-app-statistics
           dnsmasq-full ip-full
-          kmod-usb-net kmod-usb-net-rndis kmod-usb-net-cdc-ether kmod-usb-net-cdc-ncm kmod-usb-net-ipheth
-          kmod-rtl8xxxu kmod-rtl8192cu kmod-rtl8188eu kmod-mt7601u
+          kmod-usb-net kmod-usb-net-rndis kmod-usb-net-cdc-ether \
+          kmod-usb-net-cdc-ncm kmod-usb-net-ipheth
+          kmod-rtl8xxxu kmod-rtl8192cu kmod-mt7601u
           wget-ssl curl ca-bundle
-          luci-app-passwall chinadns-ng v2ray-core xray-core sing-box v2ray-geoip v2ray-geosite hysteria
         )
-
         PKG_STR=$(printf "%s " "${PACKAGES[@]}")
-
         make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
 
-    # 8. List artifacts
-    - name: List artifacts
-      run: |
-        cd imagebuilder/bin/targets/x86/64
-        ls -lah
-
-    # 9. Create USB-ready image
+    # --------------------------------------------------
+    # 8. Create USB image (~4GB)
+    # --------------------------------------------------
     - name: Create USB image (~4GB)
       run: |
         cd imagebuilder/bin/targets/x86/64
-
         ROOTFS_TAR=$(ls *rootfs*.tar* 2>/dev/null | head -n1 || true)
         SQUASH_IMG=$(ls *squashfs*.img 2>/dev/null | head -n1 || true)
 
@@ -149,7 +174,9 @@ jobs:
         echo "USB image created: $IMGNAME"
         ls -lh "$IMGNAME"
 
-    # 10. Upload artifacts
+    # --------------------------------------------------
+    # 9. Upload artifacts
+    # --------------------------------------------------
     - name: Upload firmware artifacts
       uses: actions/upload-artifact@v4
       with:
