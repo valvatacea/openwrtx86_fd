@@ -1,4 +1,4 @@
-name: OpenWrt x86_64 Auto Build + USB-ready Image
+name: OpenWrt x86_64 Auto Build + USB-ready Image + RNDIS
 
 on:
   workflow_dispatch:
@@ -78,11 +78,12 @@ jobs:
     # -----------------------------
     # 5. Add custom network + resize-rootfs
     # -----------------------------
-    - name: Add custom network + resize-rootfs
+    - name: Add custom network + resize-rootfs + RNDIS
       run: |
         mkdir -p imagebuilder/files/etc/config
         mkdir -p imagebuilder/files/etc/init.d
 
+        # Network config + usb0 DHCP untuk RNDIS
         cat > imagebuilder/files/etc/config/network <<'EOF'
         config interface 'loopback'
                 option device 'lo'
@@ -95,8 +96,12 @@ jobs:
                 option proto 'static'
                 option ipaddr '192.168.1.2'
                 option netmask '255.255.255.0'
+        
+        config interface 'usb0'
+                option proto 'dhcp'
         EOF
 
+        # Auto-expand rootfs
         cat > imagebuilder/files/etc/init.d/resize-rootfs <<'EOF'
         #!/bin/sh /etc/rc.common
         START=99
@@ -113,7 +118,7 @@ jobs:
         chmod +x imagebuilder/files/etc/init.d/resize-rootfs
 
     # -----------------------------
-    # 6. Download IPK files (manual)
+    # 6. Download IPK files
     # -----------------------------
     - name: Download IPK files
       run: |
@@ -151,6 +156,10 @@ jobs:
           ruby ruby-yaml unzip
           iptables kmod-ipt-nat iptables-mod-tproxy iptables-mod-extra
           kmod-tun luci-compat ip6tables-mod-nat kmod-inet-diag kmod-nft-tproxy
+
+          # USB & RNDIS Android tethering
+          kmod-usb-net kmod-usb-net-rndis kmod-usb-net-cdc-ether \
+          kmod-usb-net-cdc-ncm kmod-usb-net-ipheth
         )
         PKG_STR=$(printf "%s " "${PACKAGES[@]}")
         make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
@@ -161,6 +170,7 @@ jobs:
     - name: Create USB image (auto-size)
       run: |
         cd imagebuilder/bin/targets/x86/64
+
         ROOTFS_TAR=$(ls *rootfs*.tar* 2>/dev/null | head -n1 || true)
         SQUASH_IMG=$(ls *squashfs*.img 2>/dev/null | head -n1 || true)
 
@@ -175,10 +185,18 @@ jobs:
           exit 1
         fi
 
-        # Hitung ukuran rootfs + buffer 30%
+        # Hitung ukuran rootfs + buffer 50%
         ROOTFS_SIZE=$(du -b "$ROOTFS_FILE" | awk '{print $1}')
-        IMG_SIZE=$((ROOTFS_SIZE + ROOTFS_SIZE/3))
+        BUFFER=$(( ROOTFS_SIZE / 2 ))
+        IMG_SIZE=$(( ROOTFS_SIZE + BUFFER ))
 
+        # Pastikan minimal 2GB
+        MIN_SIZE=$((2 * 1024 * 1024 * 1024))
+        if [ $IMG_SIZE -lt $MIN_SIZE ]; then
+          IMG_SIZE=$MIN_SIZE
+        fi
+
+        echo "Creating USB image of size $IMG_SIZE bytes..."
         IMGNAME="openwrt-x86-64-usb-auto.img"
         qemu-img create -f raw "$IMGNAME" "$IMG_SIZE"
 
