@@ -114,16 +114,11 @@ jobs:
         chmod +x imagebuilder/files/etc/init.d/resize-rootfs
 
     # --------------------------------------------------
-    # 8. Build firmware
+    # 8. Build firmware (hapus dnsmasq default + pakai dnsmasq-full)
     # --------------------------------------------------
     - name: Build firmware
       run: |
         cd imagebuilder
-
-        # Hapus dnsmasq bawaan agar tidak clash
-        rm -f staging_dir/target-x86_64_musl/root-x86/usr/sbin/dnsmasq
-        rm -f staging_dir/target-x86_64_musl/root-x86/etc/init.d/dnsmasq
-        rm -f staging_dir/target-x86_64_musl/root-x86/etc/hotplug.d/ntp/25-dnsmasqsec
 
         PACKAGES=(
           luci luci-base dnsmasq-full bash curl ca-bundle ipset ip-full
@@ -132,7 +127,9 @@ jobs:
           kmod-tun luci-compat ip6tables-mod-nat kmod-inet-diag kmod-nft-tproxy
         )
         PKG_STR=$(printf "%s " "${PACKAGES[@]}")
-        make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
+
+        # Hapus dnsmasq default agar tidak clash
+        make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR" IPKG_REMOVE="dnsmasq"
 
     # --------------------------------------------------
     # 9. Create USB image (~4GB)
