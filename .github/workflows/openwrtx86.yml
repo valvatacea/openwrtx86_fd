@@ -1,4 +1,4 @@
-name: OpenWrt x86_64 Auto Build + USB-ready Image + RNDIS
+name: OpenWrt x86_64 Auto Build + USB-ready + IPK
 
 permissions:
   contents: write
@@ -6,19 +6,22 @@ permissions:
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 3 * * *"  # cek setiap hari jam 03:00 UTC
+    - cron: "0 3 * * *" # cek setiap hari jam 03:00 UTC
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 240
 
+    env:
+      GH_PAT: ${{ secrets.GH_PAT }}
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
     # -----------------------------
-    # 1. Get latest OpenWrt version
+    # 1. Ambil versi OpenWrt terbaru
     # -----------------------------
     - name: Get latest OpenWrt version
       id: get_version
@@ -27,7 +30,7 @@ jobs:
         echo "LATEST=$LATEST" >> $GITHUB_ENV
 
     # -----------------------------
-    # 2. Check if already built
+    # 2. Stop jika sudah ada release versi terbaru
     # -----------------------------
     - name: Check if already built
       id: already_built
@@ -73,9 +76,9 @@ jobs:
         mv openwrt-imagebuilder-* imagebuilder
 
     # -----------------------------
-    # 5. Add custom network + resize-rootfs + RNDIS
+    # 5. Tambahkan network + resize-rootfs + RNDIS
     # -----------------------------
-    - name: Add custom network + resize-rootfs
+    - name: Add custom files
       run: |
         mkdir -p imagebuilder/files/etc/config
         mkdir -p imagebuilder/files/etc/init.d
@@ -155,7 +158,7 @@ jobs:
         make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
 
     # -----------------------------
-    # 8. Create USB-ready image auto-size
+    # 8. Create USB image auto-expand
     # -----------------------------
     - name: Create USB image (auto-size)
       run: |
@@ -212,30 +215,19 @@ jobs:
         git config user.email "github-actions@github.com"
         git tag ${{ env.RELEASE_TAG }}
         git push origin ${{ env.RELEASE_TAG }}
-      env:
-        GH_PAT: ${{ secrets.GH_PAT }}
 
     # -----------------------------
-    # 11. Create GitHub Release
+    # 11. Create release + upload firmware
     # -----------------------------
-    - name: Create GitHub Release
+    - name: Create GitHub Release and upload firmware
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ env.RELEASE_TAG }}
         name: "OpenWrt x86_64 USB-ready ${{ env.LATEST }} Build #${{ github.run_number }}"
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-
-    # -----------------------------
-    # 12. Upload firmware to release
-    # -----------------------------
-    - name: Upload firmware to release
-      uses: softprops/action-gh-release@v1
-      with:
         files: |
           imagebuilder/bin/targets/x86/64/*.img
           imagebuilder/bin/targets/x86/64/*.tar.gz
+        draft: false
+        prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GH_PAT }}
