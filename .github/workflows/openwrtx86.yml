@@ -76,9 +76,9 @@ jobs:
         mv openwrt-imagebuilder-* imagebuilder
 
     # -----------------------------
-    # 5. Add custom network + resize-rootfs
+    # 5. Add custom network + resize-rootfs + RNDIS
     # -----------------------------
-    - name: Add custom network + resize-rootfs + RNDIS
+    - name: Add custom network + resize-rootfs
       run: |
         mkdir -p imagebuilder/files/etc/config
         mkdir -p imagebuilder/files/etc/init.d
@@ -221,13 +221,18 @@ jobs:
         echo "USB-ready image created: $IMGNAME ($(du -h $IMGNAME))"
 
     # -----------------------------
-    # 10. Create GitHub Release
+    # 10. Generate release tag
+    # -----------------------------
+    - name: Generate release tag
+      run: echo "RELEASE_TAG=v${{ env.LATEST }}-$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
+
+    # -----------------------------
+    # 11. Create GitHub Release
     # -----------------------------
     - name: Create GitHub Release
-      id: create_release
       uses: softprops/action-gh-release@v1
       with:
-        tag_name: "v${{ env.LATEST }}-$(date +'%Y%m%d-%H%M')"
+        tag_name: ${{ env.RELEASE_TAG }}
         name: "OpenWrt x86_64 USB-ready ${{ env.LATEST }} Build #${{ github.run_number }}"
         draft: false
         prerelease: false
@@ -235,7 +240,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     # -----------------------------
-    # 11. Upload firmware to release
+    # 12. Upload firmware to release
     # -----------------------------
     - name: Upload firmware to release
       uses: softprops/action-gh-release@v1
