@@ -27,7 +27,7 @@ sdb      8:16   1  16G  0 disk
 
 Ganti URL sesuai release terakhir:
 
-wget https://github.com/username/repo/releases/download/v24.10.4-20251120-1732/openwrt-x86-64-usb-auto.img
+wget https://github.com/valvatacea/repo/releases/download/v24.10.4-20251120-1732/openwrt-x86-64-usb-auto.img
 
 Cek ukuran:
 
