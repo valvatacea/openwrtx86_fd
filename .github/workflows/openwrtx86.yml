@@ -51,9 +51,11 @@ jobs:
       env:
         LATEST: ${{ env.LATEST }}
 
-    - name: Stop if already built
-      if: steps.already_built.outputs.result == 'true'
-      run: exit 1
+    - name: Cancel workflow if already built
+      if: steps.check_build.outputs.result == 'true'
+      uses: styfle/cancel-workflow-action@0.11.0
+      with:
+        access_token: ${{ secrets.GH_PAT }}
 
     # -----------------------------
     # 3. Install dependencies
