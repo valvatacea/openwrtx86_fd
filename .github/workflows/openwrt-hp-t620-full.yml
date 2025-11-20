@@ -1,4 +1,4 @@
-name: OpenWrt HP-T620 Full Build (24.10)
+name: OpenWrt HP-T620 Full Build (24.10) - No Python3 Warning
 
 on:
   workflow_dispatch:
@@ -35,6 +35,14 @@ start_service() {
     fi
     resize2fs "$ROOTDEV"
     touch /etc/.rootfs_resized
+}
+EOF
+        chmod +x builder/files/etc/init.d/resize-rootfs
+
+    - name: Add Custom Feeds (Passwall + OpenClash)
+      run: |
+        # Passwall + OpenClash feeds
+        echo "src-git passwall https://github.com/xiaorouji/open    touch /etc/.rootfs_resized
 }
 EOF
         chmod +x builder/files/etc/init.d/resize-rootfs
