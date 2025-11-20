@@ -1,4 +1,4 @@
-name: OpenWrt x86_64 Full Build 8GB-Ready
+name: OpenWrt USB-ready x86_64 HP T620 (USB 4GB)
 
 on:
   workflow_dispatch:
@@ -17,7 +17,8 @@ jobs:
         sudo apt-get install -y \
           build-essential git subversion libncurses5-dev gawk \
           gettext libssl-dev xsltproc wget unzip zstd ccache \
-          python3 python3-dev python3-setuptools python3-pip
+          python3 python3-dev python3-setuptools python3-pip \
+          parted e2fsprogs qemu-utils
 
     - name: Clone OpenWrt
       run: |
@@ -35,30 +36,25 @@ jobs:
         rm -rf package/feeds/packages/python-docker
         rm -rf package/feeds/packages/python-incremental
 
-    - name: Add auto-resize rootfs script
+    - name: Add auto-resize rootfs
       run: |
         cd openwrt
         mkdir -p files/etc/init.d/
         cat << "EOF" > files/etc/init.d/resize-rootfs
-#!/bin/sh /etc/rc.common
-START=99
-USE_PROCD=1
-
-start_service() {
-    ROOTDEV="$(mount | grep 'on / ' | awk '{print $1}')"
-    if [ -f /etc/.rootfs_resized ]; then
-        exit 0
-    fi
-    if command -v growpart >/dev/null 2>&1; then
-        growpart ${ROOTDEV%[0-9]} ${ROOTDEV##*[^0-9]}
-    fi
-    resize2fs "$ROOTDEV"
-    touch /etc/.rootfs_resized
-}
-EOF
+        #!/bin/sh /etc/rc.common
+        START=99
+        USE_PROCD=1
+        start_service() {
+            ROOTDEV="$(mount | grep 'on / ' | awk '{print $1}')"
+            [ -f /etc/.rootfs_resized ] && exit 0
+            command -v growpart >/dev/null 2>&1 && growpart ${ROOTDEV%[0-9]} ${ROOTDEV##*[^0-9]}
+            resize2fs "$ROOTDEV"
+            touch /etc/.rootfs_resized
+        }
+        EOF
         chmod +x files/etc/init.d/resize-rootfs
 
-    - name: Add Passwall & OpenClash feeds
+    - name: Add feeds (Passwall & OpenClash)
       run: |
         cd openwrt
         echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall-packages" >> feeds.conf.default
@@ -67,9 +63,14 @@ EOF
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Configure Build
+    - name: Configure Build for HP T620
       run: |
         cd openwrt
+        cp ./target/linux/x86/config-4.19 .config
+        echo "CONFIG_PACKAGE_kmod-usb-net-rndis=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
+        echo "CONFIG_PACKAGE_ipset=y" >> .config
+        echo "CONFIG_PACKAGE_ip-full=y" >> .config
         make defconfig
 
     - name: Build firmware
@@ -77,14 +78,28 @@ EOF
         cd openwrt
         make -j$(nproc) V=s
 
-    - name: Create 8GB-ready image artifact
+    - name: Create USB-ready image (~3.8GB)
       run: |
         cd openwrt/bin/targets/x86/64
-        # Rename combined-squashfs image for clarity
-        mv openwrt-x86-64-combined-squashfs.img openwrt-x86-64-full-8gb.img
+        # Buat image kosong sesuai USB kecil
+        qemu-img create -f raw openwrt-x86-64-t620-usb.img 3.8G
+        # Loop device
+        sudo losetup -fP openwrt-x86-64-t620-usb.img
+        LOOPDEV=$(losetup -j openwrt-x86-64-t620-usb.img | cut -d: -f1)
+        # Partisi primary untuk rootfs
+        sudo parted $LOOPDEV mklabel msdos
+        sudo parted -a optimal $LOOPDEV mkpart primary ext4 1MiB 100%
+        # Format partisi
+        sudo mkfs.ext4 ${LOOPDEV}p1
+        # Mount & copy firmware squashfs
+        mkdir -p mnt
+        sudo mount ${LOOPDEV}p1 mnt
+        sudo tar -xpf openwrt-x86-64-combined-squashfs.img -C mnt
+        sudo umount mnt
+        sudo losetup -d $LOOPDEV
 
-    - name: Upload firmware artifact
+    - name: Upload USB-ready image
       uses: actions/upload-artifact@v4
       with:
-        name: openwrt-x86-64-full-8gb
-        path: openwrt/bin/targets/x86/64/openwrt-x86-64-full-8gb.img
+        name: openwrt-x86-64-t620-usb-4gb
+        path: openwrt/bin/targets/x86/64/openwrt-x86-64-t620-usb.img
