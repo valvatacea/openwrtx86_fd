@@ -8,7 +8,6 @@
 2. Cek device USB:
 
 
-
 lsblk
 
 Contoh output:
@@ -16,7 +15,7 @@ Contoh output:
 sdb      8:16   1  16G  0 disk
 └─sdb1   8:17   1  16G  0 part
 
-> Pastikan device benar! Salah pilih akan menghapus data.
+Pastikan device benar! Salah pilih akan menghapus data.
 
 
 
