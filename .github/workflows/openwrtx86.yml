@@ -33,7 +33,7 @@ jobs:
     # 2. Stop jika sudah ada release versi terbaru
     # -----------------------------
     - name: Check if already built
-      id: already_built
+      id: check_build
       uses: actions/github-script@v6
       with:
         script: |
