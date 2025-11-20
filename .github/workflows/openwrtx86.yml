@@ -119,6 +119,12 @@ jobs:
     - name: Build firmware
       run: |
         cd imagebuilder
+
+        # Hapus dnsmasq bawaan agar tidak clash
+        rm -f staging_dir/target-x86_64_musl/root-x86/usr/sbin/dnsmasq
+        rm -f staging_dir/target-x86_64_musl/root-x86/etc/init.d/dnsmasq
+        rm -f staging_dir/target-x86_64_musl/root-x86/etc/hotplug.d/ntp/25-dnsmasqsec
+
         PACKAGES=(
           luci luci-base dnsmasq-full bash curl ca-bundle ipset ip-full
           ruby ruby-yaml unzip
