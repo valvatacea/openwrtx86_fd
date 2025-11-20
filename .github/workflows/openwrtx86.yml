@@ -30,7 +30,7 @@ jobs:
         echo "LATEST=$LATEST" >> $GITHUB_ENV
 
     # -----------------------------
-    # 2. Stop jika sudah ada release versi terbaru
+    # 2. Cek jika sudah ada release versi terbaru
     # -----------------------------
     - name: Check if already built
       id: check_build
@@ -43,24 +43,18 @@ jobs:
             repo: context.repo.repo,
             per_page: 5
           });
-          if (releases.data.some(r => r.tag_name.includes(latest))) {
-            console.log(`Latest OpenWrt ${latest} already built. Exiting...`);
-            return true;
-          }
-          return false
+          const alreadyBuilt = releases.data.some(r => r.tag_name.includes(latest));
+          console.log(`Already built: ${alreadyBuilt}`);
+          return alreadyBuilt;
+
       env:
         LATEST: ${{ env.LATEST }}
-
-    - name: Cancel workflow if already built
-      if: steps.check_build.outputs.result == 'true'
-      uses: styfle/cancel-workflow-action@0.11.0
-      with:
-        access_token: ${{ secrets.GH_PAT }}
 
     # -----------------------------
     # 3. Install dependencies
     # -----------------------------
     - name: Install dependencies
+      if: steps.check_build.outputs.result != 'true'
       run: |
         sudo apt-get update
         sudo apt-get install -y wget zstd tar xz-utils squashfs-tools \
@@ -71,6 +65,7 @@ jobs:
     # 4. Download ImageBuilder
     # -----------------------------
     - name: Download ImageBuilder
+      if: steps.check_build.outputs.result != 'true'
       run: |
         URL="https://downloads.openwrt.org/releases/${LATEST}/targets/x86/64/openwrt-imagebuilder-${LATEST}-x86-64.Linux-x86_64.tar.zst"
         wget -q --show-progress "$URL" -O imagebuilder.tar.zst
@@ -81,6 +76,7 @@ jobs:
     # 5. Tambahkan network + resize-rootfs + RNDIS
     # -----------------------------
     - name: Add custom files
+      if: steps.check_build.outputs.result != 'true'
       run: |
         mkdir -p imagebuilder/files/etc/config
         mkdir -p imagebuilder/files/etc/init.d
@@ -121,6 +117,7 @@ jobs:
     # 6. Download IPK files
     # -----------------------------
     - name: Download IPK files
+      if: steps.check_build.outputs.result != 'true'
       run: |
         mkdir -p imagebuilder/files/tmp/ipk
         wget -O imagebuilder/files/tmp/ipk/luci-theme-alpha4_4.0.1-beta-12_all.ipk \
@@ -129,6 +126,7 @@ jobs:
           https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk
 
     - name: Setup IPK auto-install
+      if: steps.check_build.outputs.result != 'true'
       run: |
         mkdir -p imagebuilder/files/etc/uci-defaults
         cat > imagebuilder/files/etc/uci-defaults/99-install-ipk <<'EOF'
@@ -146,6 +144,7 @@ jobs:
     # 7. Build firmware
     # -----------------------------
     - name: Build firmware
+      if: steps.check_build.outputs.result != 'true'
       run: |
         cd imagebuilder
         PACKAGES=(
@@ -163,6 +162,7 @@ jobs:
     # 8. Create USB image auto-expand (buffer 30%, min 1.5GB)
     # -----------------------------
     - name: Create USB image (auto-size)
+      if: steps.check_build.outputs.result != 'true'
       run: |
         cd imagebuilder/bin/targets/x86/64
         ROOTFS_TAR=$(ls *rootfs*.tar* 2>/dev/null | head -n1 || true)
@@ -208,12 +208,14 @@ jobs:
     # 9. Generate release tag
     # -----------------------------
     - name: Generate release tag
+      if: steps.check_build.outputs.result != 'true'
       run: echo "RELEASE_TAG=v${{ env.LATEST }}-$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
 
     # -----------------------------
     # 10. Create Git tag in repo
     # -----------------------------
     - name: Create and push Git tag
+      if: steps.check_build.outputs.result != 'true'
       run: |
         git config user.name "github-actions"
         git config user.email "github-actions@github.com"
@@ -224,6 +226,7 @@ jobs:
     # 11. Create release + upload firmware
     # -----------------------------
     - name: Create GitHub Release and upload firmware
+      if: steps.check_build.outputs.result != 'true'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ env.RELEASE_TAG }}
