@@ -1,5 +1,8 @@
 name: OpenWrt x86_64 Auto Build + USB-ready Image + RNDIS
 
+permissions:
+  contents: write  # penting agar PAT bisa buat release
+
 on:
   workflow_dispatch:
   schedule:
@@ -170,7 +173,6 @@ jobs:
     - name: Create USB image (auto-size)
       run: |
         cd imagebuilder/bin/targets/x86/64
-
         ROOTFS_TAR=$(ls *rootfs*.tar* 2>/dev/null | head -n1 || true)
         SQUASH_IMG=$(ls *squashfs*.img 2>/dev/null | head -n1 || true)
 
@@ -185,18 +187,14 @@ jobs:
           exit 1
         fi
 
-        # Hitung ukuran rootfs + buffer 50%
         ROOTFS_SIZE=$(du -b "$ROOTFS_FILE" | awk '{print $1}')
         BUFFER=$(( ROOTFS_SIZE / 2 ))
         IMG_SIZE=$(( ROOTFS_SIZE + BUFFER ))
-
-        # Pastikan minimal 2GB
         MIN_SIZE=$((2 * 1024 * 1024 * 1024))
         if [ $IMG_SIZE -lt $MIN_SIZE ]; then
           IMG_SIZE=$MIN_SIZE
         fi
 
-        echo "Creating USB image of size $IMG_SIZE bytes..."
         IMGNAME="openwrt-x86-64-usb-auto.img"
         qemu-img create -f raw "$IMGNAME" "$IMG_SIZE"
 
@@ -227,7 +225,7 @@ jobs:
       run: echo "RELEASE_TAG=v${{ env.LATEST }}-$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
 
     # -----------------------------
-    # 11. Create GitHub Release
+    # 11. Create GitHub Release using PAT
     # -----------------------------
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
@@ -237,7 +235,7 @@ jobs:
         draft: false
         prerelease: false
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.GH_PAT }}
 
     # -----------------------------
     # 12. Upload firmware to release
@@ -249,4 +247,4 @@ jobs:
           imagebuilder/bin/targets/x86/64/*.img
           imagebuilder/bin/targets/x86/64/*.tar.gz
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.GH_PAT }}
