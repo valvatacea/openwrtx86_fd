@@ -1,4 +1,4 @@
-name: OpenWrt HP-T620 Full Build (24.10) - ZST + Clean
+name: OpenWrt HP-T620 Full Build SDK (24.10) - Full Passwall
 
 on:
   workflow_dispatch:
@@ -14,23 +14,30 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y zstd
+        sudo apt-get install -y build-essential git subversion libncurses5-dev gawk \
+        gettext libssl-dev xsltproc wget unzip python3-distutils zstd ccache
 
-    - name: Download & Extract ImageBuilder 24.10 (x86_64, .tar.zst)
+    - name: Clone OpenWrt full source
       run: |
-        wget https://downloads.openwrt.org/releases/24.10.4/targets/x86/64/openwrt-imagebuilder-24.10.4-x86-64.Linux-x86_64.tar.zst
-        tar --use-compress-program=unzstd -xf openwrt-imagebuilder-24.10.4-x86-64.Linux-x86_64.tar.zst
+        git clone --depth 1 https://git.openwrt.org/openwrt/openwrt.git openwrt
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
 
-    - name: Set Builder Directory
+    - name: Remove Python packages causing warning
       run: |
-        # Folder hasil extract
-        export BUILDER_DIR=openwrt-imagebuilder-24.10.4-x86-64.Linux-x86_64
-        echo "BUILDER_DIR=$BUILDER_DIR" >> $GITHUB_ENV
+        cd openwrt
+        rm -rf package/feeds/packages/fail2ban
+        rm -rf package/feeds/packages/flent
+        rm -rf package/feeds/packages/python-babel
+        rm -rf package/feeds/packages/python-docker
+        rm -rf package/feeds/packages/python-incremental
 
-    - name: Add Auto Resize Script
+    - name: Apply Auto Resize Rootfs Script
       run: |
-        mkdir -p $BUILDER_DIR/files/etc/init.d/
-        cat << "EOF" > $BUILDER_DIR/files/etc/init.d/resize-rootfs
+        cd openwrt
+        mkdir -p files/etc/init.d/
+        cat << "EOF" > files/etc/init.d/resize-rootfs
         #!/bin/sh /etc/rc.common
         START=99
         USE_PROCD=1
@@ -47,55 +54,32 @@ jobs:
             touch /etc/.rootfs_resized
         }
         EOF
-        chmod +x $BUILDER_DIR/files/etc/init.d/resize-rootfs
+        chmod +x files/etc/init.d/resize-rootfs
 
     - name: Add Custom Feeds (Passwall + OpenClash)
       run: |
-        echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall-packages" >> $BUILDER_DIR/feeds.conf.default
-        echo "src-git passwall_luci https://github.com/xiaorouji/openwrt-passwall" >> $BUILDER_DIR/feeds.conf.default
-        echo "src-git openclash https://github.com/vernesong/OpenClash" >> $BUILDER_DIR/feeds.conf.default
-
-        # Hapus paket Python yang menimbulkan warning
-        rm -rf $BUILDER_DIR/package/feeds/packages/fail2ban || true
-        rm -rf $BUILDER_DIR/package/feeds/packages/flent || true
-        rm -rf $BUILDER_DIR/package/feeds/packages/python-babel || true
-        rm -rf $BUILDER_DIR/package/feeds/packages/python-docker || true
-        rm -rf $BUILDER_DIR/package/feeds/packages/python-incremental || true
-
-        cd $BUILDER_DIR
+        cd openwrt
+        echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall-packages" >> feeds.conf.default
+        echo "src-git passwall_luci https://github.com/xiaorouji/openwrt-passwall" >> feeds.conf.default
+        echo "src-git openclash https://github.com/vernesong/OpenClash" >> feeds.conf.default
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Build firmware
+    - name: Configure Build
       run: |
-        cd $BUILDER_DIR
-        make image PROFILE=generic \
-        PACKAGES="\
-        luci luci-ssl luci-mod-admin-full luci-mod-network luci-mod-status luci-mod-system \
-        luci-theme-alpha \
-        dnsmasq-full \
-        ipset ip-full kmod-tun \
-        iptables ip6tables iptables-mod-nat iptables-mod-tproxy \
-        kmod-usb-storage kmod-fs-ext4 kmod-amd64-microcode \
-        kmod-usb2 kmod-usb3 usb-modeswitch \
-        kmod-usb-net kmod-usb-net-cdc-ether kmod-usb-net-rndis \
-        wireless-tools iw iwinfo wpad-basic-mbedtls \
-        kmod-rtl8188eu kmod-rtl8192cu kmod-rtl8192eu kmod-rtl8xxxu \
-        rtl8821cu-firmware rtl8812au-ct rtl88x2bu-firmware \
-        kmod-rt2800-usb kmod-mt76x0u kmod-mt76x2u \
-        kmod-ath9k-htc ath9k-htc-firmware \
-        growpart resize2fs \
-        openclash \
-        luci-app-passwall passwall \
-        luci-app-statistics collectd collectd-mod-cpu collectd-mod-load collectd-mod-memory \
-        collectd-mod-network collectd-mod-disk collectd-mod-uptime collectd-mod-iwinfo \
-        luci-app-nlbwmon \
-        wget-ssl curl \
-        " \
-        FILES=files/
+        cd openwrt
+        # Gunakan default config, bisa dimodifikasi di menuconfig
+        make defconfig
+        # Tambahkan paket yang ingin di-build
+        # Semua paket Passwall termasuk Go-based akan di-build dari source
+
+    - name: Build Firmware
+      run: |
+        cd openwrt
+        make -j$(nproc) V=s
 
     - name: Upload Firmware
       uses: actions/upload-artifact@v4
       with:
-        name: openwrt-hp-t620-full-24.10-clean
-        path: $BUILDER_DIR/bin/targets/x86/64/*
+        name: openwrt-hp-t620-full-sdk
+        path: openwrt/bin/targets/x86/64/*
