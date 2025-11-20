@@ -1,4 +1,4 @@
-name: OpenWrt HP-T620 Full Build SDK (24.10) - Ubuntu 22.04+ Compatible
+name: OpenWrt x86_64 Full Build 8GB-Ready
 
 on:
   workflow_dispatch:
@@ -8,10 +8,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
+    - name: Checkout source
       uses: actions/checkout@v4
 
-    - name: Install dependencies (Ubuntu 22.04+)
+    - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
@@ -19,7 +19,7 @@ jobs:
           gettext libssl-dev xsltproc wget unzip zstd ccache \
           python3 python3-dev python3-setuptools python3-pip
 
-    - name: Clone OpenWrt full source
+    - name: Clone OpenWrt
       run: |
         git clone --depth 1 https://git.openwrt.org/openwrt/openwrt.git openwrt
         cd openwrt
@@ -35,30 +35,30 @@ jobs:
         rm -rf package/feeds/packages/python-docker
         rm -rf package/feeds/packages/python-incremental
 
-    - name: Add Auto Resize Rootfs Script
+    - name: Add auto-resize rootfs script
       run: |
         cd openwrt
         mkdir -p files/etc/init.d/
         cat << "EOF" > files/etc/init.d/resize-rootfs
-        #!/bin/sh /etc/rc.common
-        START=99
-        USE_PROCD=1
-        
-        start_service() {
-            ROOTDEV="$(mount | grep 'on / ' | awk '{print $1}')"
-            if [ -f /etc/.rootfs_resized ]; then
-                exit 0
-            fi
-            if command -v growpart >/dev/null 2>&1; then
-                growpart ${ROOTDEV%[0-9]} ${ROOTDEV##*[^0-9]}
-            fi
-            resize2fs "$ROOTDEV"
-            touch /etc/.rootfs_resized
-        }
-        EOF
+#!/bin/sh /etc/rc.common
+START=99
+USE_PROCD=1
+
+start_service() {
+    ROOTDEV="$(mount | grep 'on / ' | awk '{print $1}')"
+    if [ -f /etc/.rootfs_resized ]; then
+        exit 0
+    fi
+    if command -v growpart >/dev/null 2>&1; then
+        growpart ${ROOTDEV%[0-9]} ${ROOTDEV##*[^0-9]}
+    fi
+    resize2fs "$ROOTDEV"
+    touch /etc/.rootfs_resized
+}
+EOF
         chmod +x files/etc/init.d/resize-rootfs
 
-    - name: Add Custom Feeds (Passwall + OpenClash)
+    - name: Add Passwall & OpenClash feeds
       run: |
         cd openwrt
         echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall-packages" >> feeds.conf.default
@@ -71,16 +71,20 @@ jobs:
       run: |
         cd openwrt
         make defconfig
-        # Kamu bisa edit config di menuconfig jika perlu
-        # Semua paket Passwall Go-based akan build dari source
 
-    - name: Build Firmware
+    - name: Build firmware
       run: |
         cd openwrt
         make -j$(nproc) V=s
 
-    - name: Upload Firmware
+    - name: Create 8GB-ready image artifact
+      run: |
+        cd openwrt/bin/targets/x86/64
+        # Rename combined-squashfs image for clarity
+        mv openwrt-x86-64-combined-squashfs.img openwrt-x86-64-full-8gb.img
+
+    - name: Upload firmware artifact
       uses: actions/upload-artifact@v4
       with:
-        name: openwrt-hp-t620-full-sdk
-        path: openwrt/bin/targets/x86/64/*
+        name: openwrt-x86-64-full-8gb
+        path: openwrt/bin/targets/x86/64/openwrt-x86-64-full-8gb.img
