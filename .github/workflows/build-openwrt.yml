@@ -38,7 +38,9 @@ jobs:
         make -j$(nproc) || make -j1 V=s
 
     - name: Upload firmware
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: openwrt-usb-8gb
         path: openwrt/bin/targets/x86/64/
+        if-no-files-found: error
+        retention-days: 7
