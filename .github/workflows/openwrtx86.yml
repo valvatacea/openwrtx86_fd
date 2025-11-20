@@ -158,7 +158,7 @@ jobs:
         make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
 
     # -----------------------------
-    # 8. Create USB image auto-expand
+    # 8. Create USB image auto-expand (buffer 30%, min 1.5GB)
     # -----------------------------
     - name: Create USB image (auto-size)
       run: |
@@ -175,11 +175,13 @@ jobs:
           echo "No rootfs found!"
           exit 1
         fi
+
         ROOTFS_SIZE=$(du -b "$ROOTFS_FILE" | awk '{print $1}')
-        BUFFER=$(( ROOTFS_SIZE / 2 ))
+        BUFFER=$(( ROOTFS_SIZE * 30 / 100 ))   # buffer 30%
         IMG_SIZE=$(( ROOTFS_SIZE + BUFFER ))
-        MIN_SIZE=$((2 * 1024 * 1024 * 1024))
+        MIN_SIZE=$(( 1536 * 1024 * 1024 ))    # 1.5 GB
         if [ $IMG_SIZE -lt $MIN_SIZE ]; then IMG_SIZE=$MIN_SIZE; fi
+
         IMGNAME="openwrt-x86-64-usb-auto.img"
         qemu-img create -f raw "$IMGNAME" "$IMG_SIZE"
         LOOP=$(sudo losetup --show -fP "$IMGNAME")
