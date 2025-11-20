@@ -1,4 +1,4 @@
-name: OpenWrt HP-T620 Full Build (24.10) - No Python3 Warning
+name: OpenWrt HP-T620 Full Build (24.10) - Clean Build
 
 on:
   workflow_dispatch:
@@ -35,6 +35,57 @@ start_service() {
     fi
     resize2fs "$ROOTDEV"
     touch /etc/.rootfs_resized
+}
+EOF
+        chmod +x builder/files/etc/init.d/resize-rootfs
+
+    - name: Add Custom Feeds (Passwall + OpenClash)
+      run: |
+        # Passwall + OpenClash feeds
+        echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall-packages" >> builder/feeds.conf.default
+        echo "src-git passwall_luci https://github.com/xiaorouji/openwrt-passwall" >> builder/feeds.conf.default
+        echo "src-git openclash https://github.com/vernesong/OpenClash" >> builder/feeds.conf.default
+
+        # Hapus feed fail2ban untuk menghilangkan warning
+        sed -i '/fail2ban/d' builder/feeds.conf.default || true
+
+        cd builder
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: Build firmware
+      run: |
+        cd builder
+        make image PROFILE=generic \
+        PACKAGES="\
+        luci luci-ssl luci-mod-admin-full luci-mod-network luci-mod-status luci-mod-system \
+        luci-theme-alpha \
+        dnsmasq-full \
+        ipset ip-full kmod-tun \
+        iptables ip6tables iptables-mod-nat iptables-mod-tproxy \
+        kmod-usb-storage kmod-fs-ext4 kmod-amd64-microcode \
+        kmod-usb2 kmod-usb3 usb-modeswitch \
+        kmod-usb-net kmod-usb-net-cdc-ether kmod-usb-net-rndis \
+        wireless-tools iw iwinfo wpad-basic-mbedtls \
+        kmod-rtl8188eu kmod-rtl8192cu kmod-rtl8192eu kmod-rtl8xxxu \
+        rtl8821cu-firmware rtl8812au-ct rtl88x2bu-firmware \
+        kmod-rt2800-usb kmod-mt76x0u kmod-mt76x2u \
+        kmod-ath9k-htc ath9k-htc-firmware \
+        growpart resize2fs \
+        openclash \
+        luci-app-passwall passwall \
+        luci-app-statistics collectd collectd-mod-cpu collectd-mod-load collectd-mod-memory \
+        collectd-mod-network collectd-mod-disk collectd-mod-uptime collectd-mod-iwinfo \
+        luci-app-nlbwmon \
+        wget-ssl curl \
+        " \
+        FILES=files/
+
+    - name: Upload Firmware
+      uses: actions/upload-artifact@v4
+      with:
+        name: openwrt-hp-t620-full-24.10-clean
+        path: builder/bin/targets/x86/64/*    touch /etc/.rootfs_resized
 }
 EOF
         chmod +x builder/files/etc/init.d/resize-rootfs
