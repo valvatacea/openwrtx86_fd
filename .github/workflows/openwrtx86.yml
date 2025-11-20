@@ -121,7 +121,7 @@ jobs:
         cd imagebuilder
 
         PACKAGES=(
-          luci luci-base dnsmasq-full bash curl ca-bundle ipset ip-full
+          luci luci-base bash curl ca-bundle ipset ip-full
           ruby ruby-yaml unzip
           iptables kmod-ipt-nat iptables-mod-tproxy iptables-mod-extra
           kmod-tun luci-compat ip6tables-mod-nat kmod-inet-diag kmod-nft-tproxy
