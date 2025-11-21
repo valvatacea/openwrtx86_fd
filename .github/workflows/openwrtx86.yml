@@ -1,4 +1,4 @@
-name: OpenWrt x86_64 Auto Build + USB-ready + IPK (ext4)
+name: OpenWrt x86_64 Auto Build + USB-ready + IPK (ext4 <2GB)
 
 permissions:
   contents: write
@@ -152,9 +152,9 @@ jobs:
         chmod +x imagebuilder/files/etc/uci-defaults/99-install-ipk
 
     # ----------------------------------------
-    # 8. Build firmware (ext4)
+    # 8. Build firmware (squashfs + rootfs tar.gz)
     # ----------------------------------------
-    - name: Build firmware (ext4)
+    - name: Build firmware
       if: steps.check_build.outputs.result != 'true'
       run: |
         cd imagebuilder
@@ -166,25 +166,45 @@ jobs:
           parted fdisk lsblk e2fsprogs resize2fs
         )
         PKG_STR=$(printf "%s " "${PACKAGES[@]}")
-        make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR" FILESYSTEM=ext4
+        make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
 
     # ----------------------------------------
-    # 9. Create USB image (bootable)
+    # 9. Create USB image ext4 < 2GB
     # ----------------------------------------
     - name: Create USB image (bootable)
       if: steps.check_build.outputs.result != 'true'
       run: |
         cd imagebuilder/bin/targets/x86/64 || exit 1
 
-        IMG_SRC=$(ls *combined-ext4.img* 2>/dev/null | head -n1 || true)
+        ROOTFS_TAR=$(ls *-rootfs.tar.gz 2>/dev/null | head -n1 || true)
+        IMG_NAME="openwrt-x86-64-usb.ext4"
 
-        if [ -z "$IMG_SRC" ]; then
-          echo "ERROR: Bootable image not found."
+        if [ -z "$ROOTFS_TAR" ]; then
+          echo "ERROR: Rootfs tar.gz not found."
           exit 1
         fi
 
-        echo "BOOTABLE image ready: $IMG_SRC"
-        echo "Ukuran: $(du -h "$IMG_SRC")"
+        echo "Membuat ext4 bootable image dari $ROOTFS_TAR ..."
+        
+        # Buat image kosong 1.9GB
+        fallocate -l 1.9G "$IMG_NAME"
+        
+        # Format sebagai ext4
+        mkfs.ext4 "$IMG_NAME"
+        
+        # Mount sementara
+        mkdir -p mnt
+        sudo mount -o loop "$IMG_NAME" mnt
+        
+        # Extract rootfs ke image
+        sudo tar -xzf "$ROOTFS_TAR" -C mnt
+        
+        # Unmount
+        sudo umount mnt
+        rmdir mnt
+
+        echo "Bootable ext4 image siap: $IMG_NAME"
+        echo "Ukuran: $(du -h "$IMG_NAME")"
 
     # ----------------------------------------
     # 10. Generate release tag
@@ -214,7 +234,7 @@ jobs:
         tag_name: ${{ env.RELEASE_TAG }}
         name: "OpenWrt x86_64 USB-ready ext4 ${{ env.LATEST }} Build #${{ github.run_number }}"
         files: |
-          imagebuilder/bin/targets/x86/64/*combined-ext4.img*
-          imagebuilder/bin/targets/x86/64/*.tar.gz
+          imagebuilder/bin/targets/x86/64/openwrt-x86-64-usb.ext4
+          imagebuilder/bin/targets/x86/64/*-rootfs.tar.gz
       env:
         GITHUB_TOKEN: ${{ secrets.GH_PAT }}
