@@ -186,8 +186,8 @@ jobs:
 
         echo "Membuat ext4 bootable image dari $ROOTFS_TAR ..."
         
-        # Buat image kosong 1.7GB
-        fallocate -l 1.7G "$IMG_NAME"
+        # Buat image kosong 1.5GB
+        fallocate -l 1.5G "$IMG_NAME"
         
         # Format sebagai ext4
         mkfs.ext4 "$IMG_NAME"
