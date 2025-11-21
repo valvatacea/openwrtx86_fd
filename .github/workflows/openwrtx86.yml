@@ -6,32 +6,37 @@ permissions:
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 3 * * *" # cek setiap hari jam 03:00 UTC
+    - cron: "0 3 * * *" # Jalankan otomatis setiap hari jam 03:00 UTC
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 240  # Maks waktu build 4 jam
 
     env:
-      GH_PAT: ${{ secrets.GH_PAT }}
+      GH_PAT: ${{ secrets.GH_PAT }}  # Token GitHub untuk push release
 
     steps:
+    # ================================================================
+    # 1. Checkout repository
+    # ================================================================
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # ----------------------------------------
-    # 1. Ambil versi OpenWrt terbaru
-    # ----------------------------------------
+    # ================================================================
+    # 2. Ambil versi OpenWrt terbaru
+    # ================================================================
     - name: Get latest OpenWrt version
       id: get_version
       run: |
+        # Ambil daftar release, sortir versi, pilih versi terbaru
         LATEST=$(curl -s https://downloads.openwrt.org/releases/ | grep -Po '([0-9]{2}\.[0-9]{2}\.[0-9]{1,2})/' | sort -V | tail -1 | tr -d '/')
         echo "LATEST=$LATEST" >> $GITHUB_ENV
+        echo "Latest OpenWrt version: $LATEST"
 
-    # ----------------------------------------
-    # 2. Cek apakah sudah ada release versi ini
-    # ----------------------------------------
+    # ================================================================
+    # 3. Cek apakah versi terbaru sudah dibuild
+    # ================================================================
     - name: Check if already built
       id: check_build
       uses: actions/github-script@v6
@@ -43,90 +48,82 @@ jobs:
             repo: context.repo.repo,
             per_page: 20
           });
+          // Cek apakah tag release mengandung versi terbaru
           const alreadyBuilt = releases.data.some(r => r.tag_name.includes(latest));
-          console.log(`Already built: ${alreadyBuilt}`);
-          return alreadyBuilt;
+          core.setOutput("result", alreadyBuilt);
       env:
         LATEST: ${{ env.LATEST }}
 
-    # ----------------------------------------
-    # 3. Install dependencies (tambah grub & kpartx)
-    # ----------------------------------------
+    # ================================================================
+    # 4. Install dependencies
+    # ================================================================
     - name: Install dependencies
       if: steps.check_build.outputs.result != 'true'
       run: |
         sudo apt-get update
+        # Paket untuk build OpenWrt ImageBuilder, manipulasi filesystem, USB, dan kernel
         sudo apt-get install -y wget zstd xz-utils squashfs-tools \
           qemu-utils dosfstools e2fsprogs parted rsync unzip file \
           build-essential gawk python3 curl git cloud-guest-utils \
-          util-linux grub-pc-bin grub-efi-amd64-bin kpartx mtools
-        # ensure losetup supports -P (partscan)
-        losetup --version || true
+          util-linux syslinux-utils mtools
 
-    # ----------------------------------------
-    # 4. Download ImageBuilder
-    # ----------------------------------------
+    # ================================================================
+    # 5. Download ImageBuilder
+    # ================================================================
     - name: Download ImageBuilder
       if: steps.check_build.outputs.result != 'true'
       run: |
         set -e
         URL="https://downloads.openwrt.org/releases/${LATEST}/targets/x86/64/openwrt-imagebuilder-${LATEST}-x86-64.Linux-x86_64.tar.zst"
+        echo "Downloading ImageBuilder: $URL"
         wget -q --show-progress "$URL" -O imagebuilder.tar.zst
         tar --use-compress-program=unzstd -xvf imagebuilder.tar.zst
         mv openwrt-imagebuilder-* imagebuilder
 
-    # ----------------------------------------
-    # 5. Tambahkan custom files (network, resize-rootfs)
-    # ----------------------------------------
+    # ================================================================
+    # 6. Tambahkan file custom untuk konfigurasi & IPK
+    # ================================================================
     - name: Add custom files
       if: steps.check_build.outputs.result != 'true'
       run: |
-        mkdir -p imagebuilder/files/etc/config
-        mkdir -p imagebuilder/files/etc/init.d
-        mkdir -p imagebuilder/files/etc/uci-defaults
-        mkdir -p imagebuilder/files/tmp/ipk
+        # Struktur folder file custom untuk ImageBuilder
+        mkdir -p imagebuilder/files/etc/config imagebuilder/files/etc/init.d imagebuilder/files/etc/uci-defaults imagebuilder/files/tmp/ipk
 
-        # Network default
+        # Konfigurasi network default
         cat > imagebuilder/files/etc/config/network <<'EOF'
         config interface 'loopback'
-                option device 'lo'
-                option proto 'static'
-                option ipaddr '127.0.0.1'
-                option netmask '255.0.0.0'
-
+            option device 'lo'
+            option proto 'static'
+            option ipaddr '127.0.0.1'
+            option netmask '255.0.0.0'
         config interface 'lan'
-                option device 'eth0'
-                option proto 'static'
-                option ipaddr '192.168.1.2'
-                option netmask '255.255.255.0'
-
+            option device 'eth0'
+            option proto 'static'
+            option ipaddr '192.168.1.2'
+            option netmask '255.255.255.0'
         config interface 'usb0'
-                option proto 'dhcp'
+            option proto 'dhcp'
         EOF
 
-        # Resize rootfs otomatis (first-boot)
+        # Script resize root filesystem saat boot pertama
         cat > imagebuilder/files/etc/init.d/resize-rootfs <<'EOF'
         #!/bin/sh /etc/rc.common
         START=99
-
         start() {
             [ -f /etc/.rootfs_resized ] && exit 0
-
             ROOTDEV=$(mount | grep " on / " | awk '{print $1}')
             PARTBASE=$(echo $ROOTDEV | sed 's/[0-9]*$//')
             PARTNUM=$(echo $ROOTDEV | grep -o '[0-9]*$')
-
             if command -v growpart >/dev/null 2>&1; then
                 growpart $PARTBASE $PARTNUM || true
             fi
-
             resize2fs $ROOTDEV || true
             touch /etc/.rootfs_resized
         }
         EOF
         chmod +x imagebuilder/files/etc/init.d/resize-rootfs
 
-        # IPK auto-install (uci-defaults)
+        # Script auto-install IPK saat boot pertama
         cat > imagebuilder/files/etc/uci-defaults/99-install-ipk <<'EOF'
         #!/bin/sh
         IPK_DIR="/tmp/ipk"
@@ -138,82 +135,65 @@ jobs:
         EOF
         chmod +x imagebuilder/files/etc/uci-defaults/99-install-ipk
 
-    # ----------------------------------------
-    # 6. Download IPK external
-    # ----------------------------------------
+    # ================================================================
+    # 7. Download IPK eksternal
+    # ================================================================
     - name: Download IPK files
       if: steps.check_build.outputs.result != 'true'
       run: |
-        # contoh IPK (sesuaikan kalau mau paket lain)
+        # Theme luci dan OpenClash sebagai contoh IPK
         wget -O imagebuilder/files/tmp/ipk/luci-theme-alpha4.ipk \
           https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk || true
         wget -O imagebuilder/files/tmp/ipk/luci-app-openclash.ipk \
           https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk || true
 
-    # ----------------------------------------
-    # 7. Build firmware (squashfs + rootfs tar.gz)
-    # ----------------------------------------
+    # ================================================================
+    # 8. Build firmware OpenWrt
+    # ================================================================
     - name: Build firmware
       if: steps.check_build.outputs.result != 'true'
       run: |
         cd imagebuilder
-        PACKAGES=(
-          luci luci-base bash curl ca-bundle ipset ip-full ruby ruby-yaml unzip
+        # Daftar paket tambahan yang ingin dimasukkan
+        PACKAGES=(luci luci-base bash curl ca-bundle ipset ip-full ruby ruby-yaml unzip
           iptables kmod-ipt-nat iptables-mod-extra iptables-mod-tproxy
           kmod-usb-net kmod-usb-net-rndis kmod-usb-net-cdc-ether
           kmod-usb-net-cdc-ncm kmod-usb-net-ipheth
-          parted fdisk lsblk e2fsprogs resize2fs
-        )
+          parted fdisk lsblk e2fsprogs resize2fs)
         PKG_STR=$(printf "%s " "${PACKAGES[@]}")
+        echo "Building firmware with packages: $PKG_STR"
         make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
 
-    # ----------------------------------------
-    # 8. Create USB image (bootable BIOS+UEFI), compress to .img.gz
-    # ----------------------------------------
-    - name: Create USB image (bootable) and compress
+    # ================================================================
+    # 9. Buat image USB dengan BIOS syslinux
+    # ================================================================
+    - name: Create USB image
       if: steps.check_build.outputs.result != 'true'
       run: |
         set -euo pipefail
         cd imagebuilder/bin/targets/x86/64 || exit 1
-
         ROOTFS_TAR=$(ls *-rootfs.tar.gz 2>/dev/null | head -n1 || true)
-        # prefer vmlinux/vmlinuz if present
         KERNEL=$(ls *vmlinuz *-vmlinuz 2>/dev/null | head -n1 || true)
-
-        if [ -z "$ROOTFS_TAR" ]; then
-          echo "ERROR: Rootfs tar.gz not found."
-          ls -l
-          exit 1
-        fi
-
         IMG_NAME="openwrt-x86-64-usb.img"
         IMG_FINAL="${IMG_NAME}.gz"
-        IMG_SIZE=2000M   # 2GB
+        IMG_SIZE=2000M  # ukuran image <2GB
 
-        echo "Membuat blank disk image ($IMG_SIZE)..."
+        # Buat file image kosong
         fallocate -l $IMG_SIZE "$IMG_NAME"
-
-        # attach loop and create partitions (GPT)
         LOOP=$(sudo losetup -f --show "$IMG_NAME")
-        echo "LOOP=$LOOP"
 
+        # Partisi GPT: ESP (FAT32) + rootfs (ext4)
         sudo parted -s $LOOP mklabel gpt
         sudo parted -s $LOOP mkpart primary fat32 1MiB 100MiB
-        sudo parted -s $LOOP set 1 esp on
+        sudo parted -s $LOOP set 1 boot on
         sudo parted -s $LOOP mkpart primary ext4 1500MiB 100%
-
-        # ensure kernel sees partitions
         sudo partprobe $LOOP
-        # re-attach with partition scanning so /dev/loop?p1 appear
         sudo losetup -d $LOOP
         LOOP=$(sudo losetup -f --show -P "$IMG_NAME")
-        echo "LOOP (with -P) = $LOOP"
-
         ESP="${LOOP}p1"
         ROOT="${LOOP}p2"
 
-        echo "ESP=$ESP ROOT=$ROOT"
-
+        # Format filesystem
         sudo mkfs.vfat -F32 "$ESP"
         sudo mkfs.ext4 -F "$ROOT"
 
@@ -221,63 +201,44 @@ jobs:
         sudo mount "$ESP" /tmp/esp
         sudo mount "$ROOT" /tmp/root
 
-        echo "Extract rootfs to root partition..."
+        # Extract rootfs
         sudo tar -xzf "$ROOTFS_TAR" -C /tmp/root
+        [ -n "$KERNEL" ] && [ -f "$KERNEL" ] && sudo cp "$KERNEL" /tmp/root/boot/vmlinuz
 
-        # If a kernel image exists in build dir, copy it to /boot
-        if [ -n "$KERNEL" ] && [ -f "$KERNEL" ]; then
-          echo "Copy kernel $KERNEL to /boot ..."
-          sudo mkdir -p /tmp/root/boot
-          sudo cp "$KERNEL" /tmp/root/boot/vmlinuz
-        fi
-
-        echo "Install GRUB (BIOS) to disk..."
-        # Install BIOS grub; point boot-directory to ESP/boot (works on many systems)
-        sudo mkdir -p /tmp/esp/boot/grub
-        sudo grub-install --target=i386-pc --boot-directory=/tmp/esp/boot --modules="biosdisk part_gpt ext2" "$LOOP" || true
-
-        echo "Install GRUB (UEFI) to ESP..."
-        sudo mkdir -p /tmp/esp/EFI/BOOT
-        # Create a minimal grub.cfg that boots kernel from /boot/vmlinuz (root=/dev/sda2)
-        sudo tee /tmp/esp/boot/grub/grub.cfg > /dev/null <<'EOF'
-        set default=0
-        set timeout=3
-
-        menuentry "OpenWrt" {
-            linux /boot/vmlinuz root=/dev/sda2 rootfstype=ext4 rw
-        }
+        # Konfigurasi BIOS syslinux
+        sudo syslinux -i "$ROOT"
+        sudo mkdir -p /tmp/root/boot/syslinux
+        sudo tee /tmp/root/boot/syslinux/syslinux.cfg > /dev/null <<'EOF'
+        DEFAULT openwrt
+        TIMEOUT 50
+        LABEL openwrt
+            KERNEL /boot/vmlinuz
+            APPEND root=/dev/sda2 rw
         EOF
 
-        # Install UEFI GRUB files (removable)
-        sudo grub-install --target=x86_64-efi --efi-directory=/tmp/esp --boot-directory=/tmp/esp/boot --removable --no-nvram || true
+        # Minimal UEFI (EFI/BOOT)
+        sudo mkdir -p /tmp/esp/EFI/BOOT
 
-        # cleanup mounts
         sync
-        sudo umount /tmp/esp
-        sudo umount /tmp/root
+        sudo umount /tmp/esp /tmp/root
         rmdir /tmp/esp /tmp/root
-
         sudo losetup -d "$LOOP"
 
-        # compress image to .img.gz
-        echo "Compressing image to ${IMG_FINAL} ..."
+        # Compress image
         gzip -c "$IMG_NAME" > "$IMG_FINAL"
-        echo "Image produced: $(du -h "$IMG_NAME" "$IMG_FINAL" | sed -n '1,2p')"
-
-        # move outputs up to repo root so later steps can access
         mkdir -p $GITHUB_WORKSPACE/build_artifacts
-        mv "$IMG_NAME" "$IMG_FINAL" $GITHUB_WORKSPACE/build_artifacts/ || true
+        mv "$IMG_NAME" "$IMG_FINAL" $GITHUB_WORKSPACE/build_artifacts/
 
-    # ----------------------------------------
-    # 9. Generate release tag
-    # ----------------------------------------
+    # ================================================================
+    # 10. Generate release tag
+    # ================================================================
     - name: Generate release tag
       if: steps.check_build.outputs.result != 'true'
       run: echo "RELEASE_TAG=v${{ env.LATEST }}-$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
 
-    # ----------------------------------------
-    # 10. Create and push Git tag
-    # ----------------------------------------
+    # ================================================================
+    # 11. Create and push Git tag
+    # ================================================================
     - name: Create and push Git tag
       if: steps.check_build.outputs.result != 'true'
       run: |
@@ -286,9 +247,9 @@ jobs:
         git tag ${{ env.RELEASE_TAG }}
         git push origin ${{ env.RELEASE_TAG }}
 
-    # ----------------------------------------
-    # 11. Create GitHub Release and upload firmware (.img.gz + rootfs)
-    # ----------------------------------------
+    # ================================================================
+    # 12. Buat GitHub Release & upload firmware
+    # ================================================================
     - name: Create GitHub Release and upload firmware
       if: steps.check_build.outputs.result != 'true'
       uses: softprops/action-gh-release@v1
