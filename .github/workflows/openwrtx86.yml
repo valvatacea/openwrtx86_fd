@@ -29,7 +29,6 @@ jobs:
     - name: Get latest OpenWrt version
       id: get_version
       run: |
-        # Ambil daftar release, sortir versi, pilih versi terbaru
         LATEST=$(curl -s https://downloads.openwrt.org/releases/ | grep -Po '([0-9]{2}\.[0-9]{2}\.[0-9]{1,2})/' | sort -V | tail -1 | tr -d '/')
         echo "LATEST=$LATEST" >> $GITHUB_ENV
         echo "Latest OpenWrt version: $LATEST"
@@ -48,7 +47,6 @@ jobs:
             repo: context.repo.repo,
             per_page: 20
           });
-          // Cek apakah tag release mengandung versi terbaru
           const alreadyBuilt = releases.data.some(r => r.tag_name.includes(latest));
           core.setOutput("result", alreadyBuilt);
       env:
@@ -61,11 +59,10 @@ jobs:
       if: steps.check_build.outputs.result != 'true'
       run: |
         sudo apt-get update
-        # Paket untuk build OpenWrt ImageBuilder, manipulasi filesystem, USB, dan kernel
         sudo apt-get install -y wget zstd xz-utils squashfs-tools \
           qemu-utils dosfstools e2fsprogs parted rsync unzip file \
           build-essential gawk python3 curl git cloud-guest-utils \
-          util-linux syslinux syslinux-utils mtools
+          util-linux syslinux syslinux-utils mtools extlinux grub-pc-bin
 
     # ================================================================
     # 5. Download ImageBuilder
@@ -86,10 +83,8 @@ jobs:
     - name: Add custom files
       if: steps.check_build.outputs.result != 'true'
       run: |
-        # Struktur folder file custom untuk ImageBuilder
         mkdir -p imagebuilder/files/etc/config imagebuilder/files/etc/init.d imagebuilder/files/etc/uci-defaults imagebuilder/files/tmp/ipk
-
-        # Konfigurasi network default
+        # network config
         cat > imagebuilder/files/etc/config/network <<'EOF'
         config interface 'loopback'
             option device 'lo'
@@ -105,7 +100,7 @@ jobs:
             option proto 'dhcp'
         EOF
 
-        # Script resize root filesystem saat boot pertama
+        # resize rootfs first boot
         cat > imagebuilder/files/etc/init.d/resize-rootfs <<'EOF'
         #!/bin/sh /etc/rc.common
         START=99
@@ -123,7 +118,7 @@ jobs:
         EOF
         chmod +x imagebuilder/files/etc/init.d/resize-rootfs
 
-        # Script auto-install IPK saat boot pertama
+        # auto install IPK first boot
         cat > imagebuilder/files/etc/uci-defaults/99-install-ipk <<'EOF'
         #!/bin/sh
         IPK_DIR="/tmp/ipk"
@@ -141,7 +136,6 @@ jobs:
     - name: Download IPK files
       if: steps.check_build.outputs.result != 'true'
       run: |
-        # Theme luci dan OpenClash sebagai contoh IPK
         wget -O imagebuilder/files/tmp/ipk/luci-theme-alpha4.ipk \
           https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk || true
         wget -O imagebuilder/files/tmp/ipk/luci-app-openclash.ipk \
@@ -154,18 +148,17 @@ jobs:
       if: steps.check_build.outputs.result != 'true'
       run: |
         cd imagebuilder
-        # Daftar paket tambahan yang ingin dimasukkan
-        PACKAGES=(luci luci-base bash curl ca-bundle ipset ip-full ruby ruby-yaml unzip
-          iptables kmod-ipt-nat iptables-mod-extra iptables-mod-tproxy
-          kmod-usb-net kmod-usb-net-rndis kmod-usb-net-cdc-ether
-          kmod-usb-net-cdc-ncm kmod-usb-net-ipheth
+        PACKAGES=(luci luci-base bash curl ca-bundle ipset ip-full ruby ruby-yaml unzip \
+          iptables kmod-ipt-nat iptables-mod-extra iptables-mod-tproxy \
+          kmod-usb-net kmod-usb-net-rndis kmod-usb-net-cdc-ether \
+          kmod-usb-net-cdc-ncm kmod-usb-net-ipheth \
           parted fdisk lsblk e2fsprogs resize2fs)
         PKG_STR=$(printf "%s " "${PACKAGES[@]}")
         echo "Building firmware with packages: $PKG_STR"
         make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
 
     # ================================================================
-    # 9. Buat image USB dengan BIOS syslinux
+    # 9. Buat USB image bootable BIOS + minimal UEFI
     # ================================================================
     - name: Create USB image
       if: steps.check_build.outputs.result != 'true'
@@ -176,39 +169,35 @@ jobs:
         KERNEL=$(ls *vmlinuz *-vmlinuz 2>/dev/null | head -n1 || true)
         IMG_NAME="openwrt-x86-64-usb.img"
         IMG_FINAL="${IMG_NAME}.gz"
-        IMG_SIZE=2000M  # ukuran image <2GB
+        IMG_SIZE=2000M
 
-        # Buat file image kosong
         fallocate -l $IMG_SIZE "$IMG_NAME"
         LOOP=$(sudo losetup -f --show "$IMG_NAME")
 
-        # Partisi GPT: ESP (FAT32) + rootfs (ext4)
         sudo parted -s $LOOP mklabel gpt
         sudo parted -s $LOOP mkpart primary fat32 1MiB 100MiB
         sudo parted -s $LOOP set 1 boot on
-        sudo parted -s $LOOP mkpart primary ext4 1500MiB 100%
+        sudo parted -s $LOOP mkpart primary ext4 150MiB 100%
         sudo partprobe $LOOP
         sudo losetup -d $LOOP
         LOOP=$(sudo losetup -f --show -P "$IMG_NAME")
         ESP="${LOOP}p1"
         ROOT="${LOOP}p2"
 
-        # Format filesystem
-        sudo mkfs.vfat -F32 "$ESP"
+        sudo mkfs.vfat -F32 -n BOOT "$ESP"
         sudo mkfs.ext4 -F "$ROOT"
 
         mkdir -p /tmp/esp /tmp/root
         sudo mount "$ESP" /tmp/esp
         sudo mount "$ROOT" /tmp/root
 
-        # Extract rootfs
         sudo tar -xzf "$ROOTFS_TAR" -C /tmp/root
         [ -n "$KERNEL" ] && [ -f "$KERNEL" ] && sudo cp "$KERNEL" /tmp/root/boot/vmlinuz
 
-        # Konfigurasi BIOS syslinux
-        sudo syslinux -i "$ROOT"
-        sudo mkdir -p /tmp/root/boot/syslinux
-        sudo tee /tmp/root/boot/syslinux/syslinux.cfg > /dev/null <<'EOF'
+        # BIOS boot via extlinux
+        sudo mkdir -p /tmp/root/boot/extlinux
+        sudo extlinux --install /tmp/root/boot/extlinux
+        sudo tee /tmp/root/boot/extlinux/extlinux.conf > /dev/null <<'EOF'
         DEFAULT openwrt
         TIMEOUT 50
         LABEL openwrt
@@ -216,15 +205,15 @@ jobs:
             APPEND root=/dev/sda2 rw
         EOF
 
-        # Minimal UEFI (EFI/BOOT)
+        # UEFI boot minimal
         sudo mkdir -p /tmp/esp/EFI/BOOT
+        [ -f "$KERNEL" ] && sudo cp "$KERNEL" /tmp/esp/EFI/BOOT/BOOTX64.EFI
 
         sync
         sudo umount /tmp/esp /tmp/root
         rmdir /tmp/esp /tmp/root
         sudo losetup -d "$LOOP"
 
-        # Compress image
         gzip -c "$IMG_NAME" > "$IMG_FINAL"
         mkdir -p $GITHUB_WORKSPACE/build_artifacts
         mv "$IMG_NAME" "$IMG_FINAL" $GITHUB_WORKSPACE/build_artifacts/
@@ -248,7 +237,7 @@ jobs:
         git push origin ${{ env.RELEASE_TAG }}
 
     # ================================================================
-    # 12. Buat GitHub Release & upload firmware
+    # 12. Create GitHub Release & upload firmware
     # ================================================================
     - name: Create GitHub Release and upload firmware
       if: steps.check_build.outputs.result != 'true'
