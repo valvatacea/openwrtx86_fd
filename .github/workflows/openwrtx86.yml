@@ -169,7 +169,7 @@ jobs:
         KERNEL=$(ls *vmlinuz *-vmlinuz 2>/dev/null | head -n1 || true)
         IMG_NAME="openwrt-x86-64-usb.img"
         IMG_FINAL="${IMG_NAME}.gz"
-        IMG_SIZE=2000M
+        IMG_SIZE=7000M
 
         fallocate -l $IMG_SIZE "$IMG_NAME"
         LOOP=$(sudo losetup -f --show "$IMG_NAME")
