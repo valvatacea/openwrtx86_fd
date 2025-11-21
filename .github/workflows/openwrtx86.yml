@@ -161,8 +161,7 @@ jobs:
           iptables kmod-ipt-nat iptables-mod-extra iptables-mod-tproxy
           kmod-usb-net kmod-usb-net-rndis kmod-usb-net-cdc-ether
           kmod-usb-net-cdc-ncm kmod-usb-net-ipheth
-          parted util-linux fdisk lsblk e2fsprogs resize2fs
-          growpart cloud-utils-growpart
+          parted fdisk lsblk e2fsprogs resize2fs
         )
         PKG_STR=$(printf "%s " "${PACKAGES[@]}")
         make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
