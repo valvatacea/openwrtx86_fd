@@ -150,7 +150,7 @@ jobs:
         chmod +x imagebuilder/files/etc/uci-defaults/99-install-ipk
 
     # ----------------------------------------
-    # 7. Build firmware (fixed quoting)
+    # 7. Build firmware
     # ----------------------------------------
     - name: Build firmware
       if: steps.check_build.outputs.result != 'true'
@@ -167,36 +167,29 @@ jobs:
         make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
 
     # ----------------------------------------
-    # 8. Create USB image (BOOTABLE)
+    # 8. Create USB image (bootable) - tetap di folder target
     # ----------------------------------------
     - name: Create USB image (bootable)
       if: steps.check_build.outputs.result != 'true'
       run: |
         cd imagebuilder/bin/targets/x86/64 || exit 1
-    
+
         echo "Searching for bootable image..."
-    
-        # Cari file combined / EFI
         IMG_SRC=$(ls *combined*.img* *efi*.img* 2>/dev/null | head -n1 || true)
-    
+
         if [ -z "$IMG_SRC" ]; then
           echo "ERROR: Bootable image not found."
           exit 1
         fi
-    
-        # Decompress jika .gz, abaikan trailing garbage
+
         if echo "$IMG_SRC" | grep -q ".gz$"; then
           echo "Decompressing $IMG_SRC..."
-          gunzip -k "$IMG_SRC" || true  # Jangan hentikan workflow jika exit code != 0
+          gunzip -k "$IMG_SRC" || true
           IMG_SRC="${IMG_SRC%.gz}"
         fi
-    
-        # Pindahkan ke lokasi final
-        FINAL_IMG="../../../../openwrt-x86-64-usb-auto.img"
-        mv "$IMG_SRC" "$FINAL_IMG"
-    
-        echo "BOOTABLE image created: $FINAL_IMG"
-        echo "Ukuran: $(du -h "$FINAL_IMG")"
+
+        echo "BOOTABLE image ready: $IMG_SRC"
+        echo "Ukuran: $(du -h "$IMG_SRC")"
 
     # ----------------------------------------
     # 9. Generate release tag
@@ -228,7 +221,5 @@ jobs:
         files: |
           imagebuilder/bin/targets/x86/64/*.img
           imagebuilder/bin/targets/x86/64/*.tar.gz
-        draft: false
-        prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GH_PAT }}
