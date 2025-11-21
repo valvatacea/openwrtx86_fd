@@ -1,4 +1,4 @@
-name: OpenWrt x86_64 Auto Build + USB-ready + IPK (ext4 <2GB)
+name: OpenWrt x86_64 Auto Build + USB-ready + IPK (.img <2GB)
 
 permissions:
   contents: write
@@ -169,7 +169,7 @@ jobs:
         make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
 
     # ----------------------------------------
-    # 9. Create USB image ext4 < 2GB
+    # 9. Create USB image ext4 < 2GB (.img)
     # ----------------------------------------
     - name: Create USB image (bootable)
       if: steps.check_build.outputs.result != 'true'
@@ -177,7 +177,7 @@ jobs:
         cd imagebuilder/bin/targets/x86/64 || exit 1
 
         ROOTFS_TAR=$(ls *-rootfs.tar.gz 2>/dev/null | head -n1 || true)
-        IMG_NAME="openwrt-x86-64-usb.ext4"
+        IMG_NAME="openwrt-x86-64-usb.img"   # sekarang berekstensi .img
 
         if [ -z "$ROOTFS_TAR" ]; then
           echo "ERROR: Rootfs tar.gz not found."
@@ -234,7 +234,7 @@ jobs:
         tag_name: ${{ env.RELEASE_TAG }}
         name: "OpenWrt x86_64 USB-ready ext4 ${{ env.LATEST }} Build #${{ github.run_number }}"
         files: |
-          imagebuilder/bin/targets/x86/64/openwrt-x86-64-usb.ext4
+          imagebuilder/bin/targets/x86/64/openwrt-x86-64-usb.img
           imagebuilder/bin/targets/x86/64/*-rootfs.tar.gz
       env:
         GITHUB_TOKEN: ${{ secrets.GH_PAT }}
