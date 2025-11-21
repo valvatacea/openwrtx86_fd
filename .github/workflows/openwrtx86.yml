@@ -200,7 +200,7 @@ jobs:
         sudo parted -s $LOOP mklabel gpt
         sudo parted -s $LOOP mkpart primary fat32 1MiB 100MiB
         sudo parted -s $LOOP set 1 esp on
-        sudo parted -s $LOOP mkpart primary ext4 100MiB 100%
+        sudo parted -s $LOOP mkpart primary ext4 1000MiB 100%
 
         # ensure kernel sees partitions
         sudo partprobe $LOOP
