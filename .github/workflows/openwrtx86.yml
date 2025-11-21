@@ -20,18 +20,18 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # -----------------------------
+    # ----------------------------------------
     # 1. Ambil versi OpenWrt terbaru
-    # -----------------------------
+    # ----------------------------------------
     - name: Get latest OpenWrt version
       id: get_version
       run: |
         LATEST=$(curl -s https://downloads.openwrt.org/releases/ | grep -Po '([0-9]{2}\.[0-9]{2}\.[0-9]{1,2})/' | sort -V | tail -1 | tr -d '/')
         echo "LATEST=$LATEST" >> $GITHUB_ENV
 
-    # -----------------------------
-    # 2. Cek jika sudah ada release versi terbaru
-    # -----------------------------
+    # ----------------------------------------
+    # 2. Cek apakah sudah ada release versi ini
+    # ----------------------------------------
     - name: Check if already built
       id: check_build
       uses: actions/github-script@v6
@@ -41,7 +41,7 @@ jobs:
           const releases = await github.rest.repos.listReleases({
             owner: context.repo.owner,
             repo: context.repo.repo,
-            per_page: 5
+            per_page: 10
           });
           const alreadyBuilt = releases.data.some(r => r.tag_name.includes(latest));
           console.log(`Already built: ${alreadyBuilt}`);
@@ -50,20 +50,21 @@ jobs:
       env:
         LATEST: ${{ env.LATEST }}
 
-    # -----------------------------
+    # ----------------------------------------
     # 3. Install dependencies
-    # -----------------------------
+    # ----------------------------------------
     - name: Install dependencies
       if: steps.check_build.outputs.result != 'true'
       run: |
         sudo apt-get update
-        sudo apt-get install -y wget zstd tar xz-utils squashfs-tools \
+        sudo apt-get install -y wget zstd xz-utils squashfs-tools \
           qemu-utils dosfstools e2fsprogs parted rsync unzip file \
-          build-essential gawk python3 curl git
+          build-essential gawk python3 curl git cloud-guest-utils \
+          util-linux
 
-    # -----------------------------
+    # ----------------------------------------
     # 4. Download ImageBuilder
-    # -----------------------------
+    # ----------------------------------------
     - name: Download ImageBuilder
       if: steps.check_build.outputs.result != 'true'
       run: |
@@ -72,9 +73,9 @@ jobs:
         tar --use-compress-program=unzstd -xvf imagebuilder.tar.zst
         mv openwrt-imagebuilder-* imagebuilder
 
-    # -----------------------------
-    # 5. Tambahkan network + resize-rootfs + RNDIS
-    # -----------------------------
+    # ----------------------------------------
+    # 5. Tambahkan custom files (network, resize-rootfs)
+    # ----------------------------------------
     - name: Add custom files
       if: steps.check_build.outputs.result != 'true'
       run: |
@@ -101,28 +102,36 @@ jobs:
         cat > imagebuilder/files/etc/init.d/resize-rootfs <<'EOF'
         #!/bin/sh /etc/rc.common
         START=99
+        
         start() {
-          ROOTDEV="$(mount | grep ' on / ' | awk '{print $1}')"
-          [ -f /etc/.rootfs_resized ] && exit 0
-          if command -v growpart >/dev/null 2>&1; then
-            growpart ${ROOTDEV%[0-9]} ${ROOTDEV##*[^0-9]} || true
-          fi
-          resize2fs "$ROOTDEV" || true
-          touch /etc/.rootfs_resized
+            [ -f /etc/.rootfs_resized ] && exit 0
+        
+            ROOTDEV=$(readlink -f /dev/disk/by-label/rootfs || true)
+            [ -z "$ROOTDEV" ] && ROOTDEV=$(mount | grep " on / " | awk '{print $1}')
+        
+            PARTBASE=${ROOTDEV%[0-9]}
+            PARTNUM=${ROOTDEV##*$PARTBASE}
+        
+            if command -v growpart >/dev/null 2>&1; then
+                growpart "$PARTBASE" "$PARTNUM" || true
+            fi
+        
+            resize2fs "$ROOTDEV" || true
+            touch /etc/.rootfs_resized
         }
         EOF
         chmod +x imagebuilder/files/etc/init.d/resize-rootfs
 
-    # -----------------------------
-    # 6. Download IPK files
-    # -----------------------------
+    # ----------------------------------------
+    # 6. Download IPK external
+    # ----------------------------------------
     - name: Download IPK files
       if: steps.check_build.outputs.result != 'true'
       run: |
         mkdir -p imagebuilder/files/tmp/ipk
-        wget -O imagebuilder/files/tmp/ipk/luci-theme-alpha4_4.0.1-beta-12_all.ipk \
+        wget -O imagebuilder/files/tmp/ipk/luci-theme-alpha4.ipk \
           https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk
-        wget -O imagebuilder/files/tmp/ipk/luci-app-openclash_0.47.028_all.ipk \
+        wget -O imagebuilder/files/tmp/ipk/luci-app-openclash.ipk \
           https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk
 
     - name: Setup IPK auto-install
@@ -140,80 +149,60 @@ jobs:
         EOF
         chmod +x imagebuilder/files/etc/uci-defaults/99-install-ipk
 
-    # -----------------------------
+    # ----------------------------------------
     # 7. Build firmware
-    # -----------------------------
+    # ----------------------------------------
     - name: Build firmware
       if: steps.check_build.outputs.result != 'true'
       run: |
         cd imagebuilder
-        PACKAGES=(
-          luci luci-base bash curl ca-bundle ipset ip-full
-          ruby ruby-yaml unzip
-          iptables kmod-ipt-nat iptables-mod-tproxy iptables-mod-extra
-          kmod-tun luci-compat ip6tables-mod-nat kmod-inet-diag kmod-nft-tproxy
+        PACKAGES="
+          luci luci-base bash curl ca-bundle ipset ip-full ruby ruby-yaml unzip
+          iptables kmod-ipt-nat iptables-mod-extra iptables-mod-tproxy
           kmod-usb-net kmod-usb-net-rndis kmod-usb-net-cdc-ether
           kmod-usb-net-cdc-ncm kmod-usb-net-ipheth
-        )
-        PKG_STR=$(printf "%s " "${PACKAGES[@]}")
-        make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
+          parted util-linux fdisk lsblk e2fsprogs resize2fs
+          growpart cloud-utils-growpart
+        "
+        make image PROFILE="generic" FILES="files" PACKAGES="$PACKAGES"
 
-    # -----------------------------
-    # 8. Create USB image auto-expand (buffer 30%, min 1.5GB)
-    # -----------------------------
-    - name: Create USB image (auto-size)
+    # ----------------------------------------
+    # 8. Create USB image (BOOTABLE)
+    # ----------------------------------------
+    - name: Create USB image (bootable)
       if: steps.check_build.outputs.result != 'true'
       run: |
-        cd imagebuilder/bin/targets/x86/64
-        ROOTFS_TAR=$(ls *rootfs*.tar* 2>/dev/null | head -n1 || true)
-        SQUASH_IMG=$(ls *squashfs*.img 2>/dev/null | head -n1 || true)
-        if [ -n "$ROOTFS_TAR" ]; then
-          ROOTFS_FILE="$ROOTFS_TAR"
-        elif [ -n "$SQUASH_IMG" ]; then
-          unsquashfs -d tmproot "$SQUASH_IMG"
-          tar -C tmproot -cf openwrt-rootfs-from-squashfs.tar .
-          ROOTFS_FILE="openwrt-rootfs-from-squashfs.tar"
-        else
-          echo "No rootfs found!"
+        cd imagebuilder/bin/targets/x86/64 || exit 1
+
+        echo "Searching for bootable image..."
+
+        IMG_SRC=$(ls *combined*.img* *efi*.img* 2>/dev/null | head -n1 || true)
+
+        if [ -z "$IMG_SRC" ]; then
+          echo "ERROR: Bootable image not found."
           exit 1
         fi
 
-        ROOTFS_SIZE=$(du -b "$ROOTFS_FILE" | awk '{print $1}')
-        BUFFER=$(( ROOTFS_SIZE * 30 / 100 ))   # buffer 30%
-        IMG_SIZE=$(( ROOTFS_SIZE + BUFFER ))
-        MIN_SIZE=$(( 1536 * 1024 * 1024 ))    # 1.5 GB
-        if [ $IMG_SIZE -lt $MIN_SIZE ]; then IMG_SIZE=$MIN_SIZE; fi
-
-        IMGNAME="openwrt-x86-64-usb-auto.img"
-        qemu-img create -f raw "$IMGNAME" "$IMG_SIZE"
-        LOOP=$(sudo losetup --show -fP "$IMGNAME")
-        sudo parted -s "$LOOP" mklabel msdos
-        sudo parted -s "$LOOP" mkpart primary ext4 1MiB 100%
-        sleep 1
-        PART="${LOOP}p1"
-        sudo mkfs.ext4 -F "$PART"
-        mkdir -p mnt
-        sudo mount "$PART" mnt
-        if file "$ROOTFS_FILE" | grep -qi gzip; then
-          sudo tar -xzf "$ROOTFS_FILE" -C mnt
-        else
-          sudo tar -xpf "$ROOTFS_FILE" -C mnt
+        if echo "$IMG_SRC" | grep -q ".gz$"; then
+          gunzip -k "$IMG_SRC"
+          IMG_SRC="${IMG_SRC%.gz}"
         fi
-        sudo chmod +x mnt/etc/init.d/* || true
-        sudo umount mnt
-        sudo losetup -d "$LOOP"
-        echo "USB-ready image created: $IMGNAME ($(du -h $IMGNAME))"
 
-    # -----------------------------
+        FINAL_IMG="../../../../openwrt-x86-64-usb-auto.img"
+        mv "$IMG_SRC" "$FINAL_IMG"
+
+        echo "BOOTABLE image created: $(du -h "$FINAL_IMG")"
+
+    # ----------------------------------------
     # 9. Generate release tag
-    # -----------------------------
+    # ----------------------------------------
     - name: Generate release tag
       if: steps.check_build.outputs.result != 'true'
       run: echo "RELEASE_TAG=v${{ env.LATEST }}-$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
 
-    # -----------------------------
-    # 10. Create Git tag in repo
-    # -----------------------------
+    # ----------------------------------------
+    # 10. Push Git Tag
+    # ----------------------------------------
     - name: Create and push Git tag
       if: steps.check_build.outputs.result != 'true'
       run: |
@@ -222,9 +211,9 @@ jobs:
         git tag ${{ env.RELEASE_TAG }}
         git push origin ${{ env.RELEASE_TAG }}
 
-    # -----------------------------
-    # 11. Create release + upload firmware
-    # -----------------------------
+    # ----------------------------------------
+    # 11. Release
+    # ----------------------------------------
     - name: Create GitHub Release and upload firmware
       if: steps.check_build.outputs.result != 'true'
       uses: softprops/action-gh-release@v1
