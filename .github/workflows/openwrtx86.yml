@@ -188,7 +188,7 @@ jobs:
 
         IMG_NAME="openwrt-x86-64-usb.img"
         IMG_FINAL="${IMG_NAME}.gz"
-        IMG_SIZE=1500M   # 1.5GB
+        IMG_SIZE=2000M   # 2GB
 
         echo "Membuat blank disk image ($IMG_SIZE)..."
         fallocate -l $IMG_SIZE "$IMG_NAME"
