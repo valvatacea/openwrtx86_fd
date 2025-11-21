@@ -1,4 +1,4 @@
-name: OpenWrt x86_64 Auto Build + USB-ready + IPK
+name: OpenWrt x86_64 Auto Build + USB-ready + IPK (ext4)
 
 permissions:
   contents: write
@@ -46,7 +46,6 @@ jobs:
           const alreadyBuilt = releases.data.some(r => r.tag_name.includes(latest));
           console.log(`Already built: ${alreadyBuilt}`);
           return alreadyBuilt;
-
       env:
         LATEST: ${{ env.LATEST }}
 
@@ -82,41 +81,41 @@ jobs:
         mkdir -p imagebuilder/files/etc/config
         mkdir -p imagebuilder/files/etc/init.d
 
+        # Network default
         cat > imagebuilder/files/etc/config/network <<'EOF'
         config interface 'loopback'
                 option device 'lo'
                 option proto 'static'
                 option ipaddr '127.0.0.1'
                 option netmask '255.0.0.0'
-        
+
         config interface 'lan'
                 option device 'eth0'
                 option proto 'static'
                 option ipaddr '192.168.1.2'
                 option netmask '255.255.255.0'
-        
+
         config interface 'usb0'
                 option proto 'dhcp'
         EOF
 
+        # Resize rootfs otomatis
         cat > imagebuilder/files/etc/init.d/resize-rootfs <<'EOF'
         #!/bin/sh /etc/rc.common
         START=99
-        
+
         start() {
             [ -f /etc/.rootfs_resized ] && exit 0
-        
-            ROOTDEV=$(readlink -f /dev/disk/by-label/rootfs || true)
-            [ -z "$ROOTDEV" ] && ROOTDEV=$(mount | grep " on / " | awk '{print $1}')
-        
-            PARTBASE=${ROOTDEV%[0-9]}
-            PARTNUM=${ROOTDEV##*$PARTBASE}
-        
+
+            ROOTDEV=$(mount | grep " on / " | awk '{print $1}')
+            PARTBASE=$(echo $ROOTDEV | sed 's/[0-9]*$//')
+            PARTNUM=$(echo $ROOTDEV | grep -o '[0-9]*$')
+
             if command -v growpart >/dev/null 2>&1; then
-                growpart "$PARTBASE" "$PARTNUM" || true
+                growpart $PARTBASE $PARTNUM
             fi
-        
-            resize2fs "$ROOTDEV" || true
+
+            resize2fs $ROOTDEV
             touch /etc/.rootfs_resized
         }
         EOF
@@ -134,6 +133,9 @@ jobs:
         wget -O imagebuilder/files/tmp/ipk/luci-app-openclash.ipk \
           https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk
 
+    # ----------------------------------------
+    # 7. Setup IPK auto-install
+    # ----------------------------------------
     - name: Setup IPK auto-install
       if: steps.check_build.outputs.result != 'true'
       run: |
@@ -150,9 +152,9 @@ jobs:
         chmod +x imagebuilder/files/etc/uci-defaults/99-install-ipk
 
     # ----------------------------------------
-    # 7. Build firmware
+    # 8. Build firmware (ext4)
     # ----------------------------------------
-    - name: Build firmware
+    - name: Build firmware (ext4)
       if: steps.check_build.outputs.result != 'true'
       run: |
         cd imagebuilder
@@ -164,42 +166,35 @@ jobs:
           parted fdisk lsblk e2fsprogs resize2fs
         )
         PKG_STR=$(printf "%s " "${PACKAGES[@]}")
-        make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
+        make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR" FILESYSTEM=ext4
 
     # ----------------------------------------
-    # 8. Create USB image (bootable) - tetap di folder target
+    # 9. Create USB image (bootable)
     # ----------------------------------------
     - name: Create USB image (bootable)
       if: steps.check_build.outputs.result != 'true'
       run: |
         cd imagebuilder/bin/targets/x86/64 || exit 1
 
-        echo "Searching for bootable image..."
-        IMG_SRC=$(ls *combined*.img* *efi*.img* 2>/dev/null | head -n1 || true)
+        IMG_SRC=$(ls *combined-ext4.img* 2>/dev/null | head -n1 || true)
 
         if [ -z "$IMG_SRC" ]; then
           echo "ERROR: Bootable image not found."
           exit 1
         fi
 
-        if echo "$IMG_SRC" | grep -q ".gz$"; then
-          echo "Decompressing $IMG_SRC..."
-          gunzip -k "$IMG_SRC" || true
-          IMG_SRC="${IMG_SRC%.gz}"
-        fi
-
         echo "BOOTABLE image ready: $IMG_SRC"
         echo "Ukuran: $(du -h "$IMG_SRC")"
 
     # ----------------------------------------
-    # 9. Generate release tag
+    # 10. Generate release tag
     # ----------------------------------------
     - name: Generate release tag
       if: steps.check_build.outputs.result != 'true'
       run: echo "RELEASE_TAG=v${{ env.LATEST }}-$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
 
     # ----------------------------------------
-    # 10. Push Git Tag
+    # 11. Push Git Tag
     # ----------------------------------------
     - name: Create and push Git tag
       if: steps.check_build.outputs.result != 'true'
@@ -210,16 +205,16 @@ jobs:
         git push origin ${{ env.RELEASE_TAG }}
 
     # ----------------------------------------
-    # 11. Release
+    # 12. Release
     # ----------------------------------------
     - name: Create GitHub Release and upload firmware
       if: steps.check_build.outputs.result != 'true'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ env.RELEASE_TAG }}
-        name: "OpenWrt x86_64 USB-ready ${{ env.LATEST }} Build #${{ github.run_number }}"
+        name: "OpenWrt x86_64 USB-ready ext4 ${{ env.LATEST }} Build #${{ github.run_number }}"
         files: |
-          imagebuilder/bin/targets/x86/64/*.img
+          imagebuilder/bin/targets/x86/64/*combined-ext4.img*
           imagebuilder/bin/targets/x86/64/*.tar.gz
       env:
         GITHUB_TOKEN: ${{ secrets.GH_PAT }}
