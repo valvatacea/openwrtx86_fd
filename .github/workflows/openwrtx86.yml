@@ -1,4 +1,4 @@
-name: OpenWrt x86_64 Auto Build + USB-ready + IPK (.img <2GB)
+name: OpenWrt x86_64 Auto Build + USB-ready + IPK (.img <2GB, .img.gz)
 
 permissions:
   contents: write
@@ -41,7 +41,7 @@ jobs:
           const releases = await github.rest.repos.listReleases({
             owner: context.repo.owner,
             repo: context.repo.repo,
-            per_page: 10
+            per_page: 20
           });
           const alreadyBuilt = releases.data.some(r => r.tag_name.includes(latest));
           console.log(`Already built: ${alreadyBuilt}`);
@@ -50,7 +50,7 @@ jobs:
         LATEST: ${{ env.LATEST }}
 
     # ----------------------------------------
-    # 3. Install dependencies
+    # 3. Install dependencies (tambah grub & kpartx)
     # ----------------------------------------
     - name: Install dependencies
       if: steps.check_build.outputs.result != 'true'
@@ -59,7 +59,9 @@ jobs:
         sudo apt-get install -y wget zstd xz-utils squashfs-tools \
           qemu-utils dosfstools e2fsprogs parted rsync unzip file \
           build-essential gawk python3 curl git cloud-guest-utils \
-          util-linux
+          util-linux grub-pc-bin grub-efi-amd64-bin kpartx mtools
+        # ensure losetup supports -P (partscan)
+        losetup --version || true
 
     # ----------------------------------------
     # 4. Download ImageBuilder
@@ -67,6 +69,7 @@ jobs:
     - name: Download ImageBuilder
       if: steps.check_build.outputs.result != 'true'
       run: |
+        set -e
         URL="https://downloads.openwrt.org/releases/${LATEST}/targets/x86/64/openwrt-imagebuilder-${LATEST}-x86-64.Linux-x86_64.tar.zst"
         wget -q --show-progress "$URL" -O imagebuilder.tar.zst
         tar --use-compress-program=unzstd -xvf imagebuilder.tar.zst
@@ -80,6 +83,8 @@ jobs:
       run: |
         mkdir -p imagebuilder/files/etc/config
         mkdir -p imagebuilder/files/etc/init.d
+        mkdir -p imagebuilder/files/etc/uci-defaults
+        mkdir -p imagebuilder/files/tmp/ipk
 
         # Network default
         cat > imagebuilder/files/etc/config/network <<'EOF'
@@ -99,7 +104,7 @@ jobs:
                 option proto 'dhcp'
         EOF
 
-        # Resize rootfs otomatis
+        # Resize rootfs otomatis (first-boot)
         cat > imagebuilder/files/etc/init.d/resize-rootfs <<'EOF'
         #!/bin/sh /etc/rc.common
         START=99
@@ -112,34 +117,16 @@ jobs:
             PARTNUM=$(echo $ROOTDEV | grep -o '[0-9]*$')
 
             if command -v growpart >/dev/null 2>&1; then
-                growpart $PARTBASE $PARTNUM
+                growpart $PARTBASE $PARTNUM || true
             fi
 
-            resize2fs $ROOTDEV
+            resize2fs $ROOTDEV || true
             touch /etc/.rootfs_resized
         }
         EOF
         chmod +x imagebuilder/files/etc/init.d/resize-rootfs
 
-    # ----------------------------------------
-    # 6. Download IPK external
-    # ----------------------------------------
-    - name: Download IPK files
-      if: steps.check_build.outputs.result != 'true'
-      run: |
-        mkdir -p imagebuilder/files/tmp/ipk
-        wget -O imagebuilder/files/tmp/ipk/luci-theme-alpha4.ipk \
-          https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk
-        wget -O imagebuilder/files/tmp/ipk/luci-app-openclash.ipk \
-          https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk
-
-    # ----------------------------------------
-    # 7. Setup IPK auto-install
-    # ----------------------------------------
-    - name: Setup IPK auto-install
-      if: steps.check_build.outputs.result != 'true'
-      run: |
-        mkdir -p imagebuilder/files/etc/uci-defaults
+        # IPK auto-install (uci-defaults)
         cat > imagebuilder/files/etc/uci-defaults/99-install-ipk <<'EOF'
         #!/bin/sh
         IPK_DIR="/tmp/ipk"
@@ -152,7 +139,19 @@ jobs:
         chmod +x imagebuilder/files/etc/uci-defaults/99-install-ipk
 
     # ----------------------------------------
-    # 8. Build firmware (squashfs + rootfs tar.gz)
+    # 6. Download IPK external
+    # ----------------------------------------
+    - name: Download IPK files
+      if: steps.check_build.outputs.result != 'true'
+      run: |
+        # contoh IPK (sesuaikan kalau mau paket lain)
+        wget -O imagebuilder/files/tmp/ipk/luci-theme-alpha4.ipk \
+          https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk || true
+        wget -O imagebuilder/files/tmp/ipk/luci-app-openclash.ipk \
+          https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk || true
+
+    # ----------------------------------------
+    # 7. Build firmware (squashfs + rootfs tar.gz)
     # ----------------------------------------
     - name: Build firmware
       if: steps.check_build.outputs.result != 'true'
@@ -169,52 +168,115 @@ jobs:
         make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
 
     # ----------------------------------------
-    # 9. Create USB image ext4 < 2GB (.img)
+    # 8. Create USB image (bootable BIOS+UEFI), compress to .img.gz
     # ----------------------------------------
-    - name: Create USB image (bootable)
+    - name: Create USB image (bootable) and compress
       if: steps.check_build.outputs.result != 'true'
       run: |
+        set -euo pipefail
         cd imagebuilder/bin/targets/x86/64 || exit 1
 
         ROOTFS_TAR=$(ls *-rootfs.tar.gz 2>/dev/null | head -n1 || true)
-        IMG_NAME="openwrt-x86-64-usb.img"   # sekarang berekstensi .img
+        # prefer vmlinux/vmlinuz if present
+        KERNEL=$(ls *vmlinuz *-vmlinuz 2>/dev/null | head -n1 || true)
 
         if [ -z "$ROOTFS_TAR" ]; then
           echo "ERROR: Rootfs tar.gz not found."
+          ls -l
           exit 1
         fi
 
-        echo "Membuat ext4 bootable image dari $ROOTFS_TAR ..."
-        
-        # Buat image kosong 1.5GB
-        fallocate -l 1.5G "$IMG_NAME"
-        
-        # Format sebagai ext4
-        mkfs.ext4 "$IMG_NAME"
-        
-        # Mount sementara
-        mkdir -p mnt
-        sudo mount -o loop "$IMG_NAME" mnt
-        
-        # Extract rootfs ke image
-        sudo tar -xzf "$ROOTFS_TAR" -C mnt
-        
-        # Unmount
-        sudo umount mnt
-        rmdir mnt
+        IMG_NAME="openwrt-x86-64-usb.img"
+        IMG_FINAL="${IMG_NAME}.gz"
+        IMG_SIZE=1500M   # 1.5GB
 
-        echo "Bootable ext4 image siap: $IMG_NAME"
-        echo "Ukuran: $(du -h "$IMG_NAME")"
+        echo "Membuat blank disk image ($IMG_SIZE)..."
+        fallocate -l $IMG_SIZE "$IMG_NAME"
+
+        # attach loop and create partitions (GPT)
+        LOOP=$(sudo losetup -f --show "$IMG_NAME")
+        echo "LOOP=$LOOP"
+
+        sudo parted -s $LOOP mklabel gpt
+        sudo parted -s $LOOP mkpart primary fat32 1MiB 100MiB
+        sudo parted -s $LOOP set 1 esp on
+        sudo parted -s $LOOP mkpart primary ext4 100MiB 100%
+
+        # ensure kernel sees partitions
+        sudo partprobe $LOOP
+        # re-attach with partition scanning so /dev/loop?p1 appear
+        sudo losetup -d $LOOP
+        LOOP=$(sudo losetup -f --show -P "$IMG_NAME")
+        echo "LOOP (with -P) = $LOOP"
+
+        ESP="${LOOP}p1"
+        ROOT="${LOOP}p2"
+
+        echo "ESP=$ESP ROOT=$ROOT"
+
+        sudo mkfs.vfat -F32 "$ESP"
+        sudo mkfs.ext4 -F "$ROOT"
+
+        mkdir -p /tmp/esp /tmp/root
+        sudo mount "$ESP" /tmp/esp
+        sudo mount "$ROOT" /tmp/root
+
+        echo "Extract rootfs to root partition..."
+        sudo tar -xzf "$ROOTFS_TAR" -C /tmp/root
+
+        # If a kernel image exists in build dir, copy it to /boot
+        if [ -n "$KERNEL" ] && [ -f "$KERNEL" ]; then
+          echo "Copy kernel $KERNEL to /boot ..."
+          sudo mkdir -p /tmp/root/boot
+          sudo cp "$KERNEL" /tmp/root/boot/vmlinuz
+        fi
+
+        echo "Install GRUB (BIOS) to disk..."
+        # Install BIOS grub; point boot-directory to ESP/boot (works on many systems)
+        sudo mkdir -p /tmp/esp/boot/grub
+        sudo grub-install --target=i386-pc --boot-directory=/tmp/esp/boot --modules="biosdisk part_gpt ext2" "$LOOP" || true
+
+        echo "Install GRUB (UEFI) to ESP..."
+        sudo mkdir -p /tmp/esp/EFI/BOOT
+        # Create a minimal grub.cfg that boots kernel from /boot/vmlinuz (root=/dev/sda2)
+        sudo tee /tmp/esp/boot/grub/grub.cfg > /dev/null <<'EOF'
+        set default=0
+        set timeout=3
+
+        menuentry "OpenWrt" {
+            linux /boot/vmlinuz root=/dev/sda2 rootfstype=ext4 rw
+        }
+        EOF
+
+        # Install UEFI GRUB files (removable)
+        sudo grub-install --target=x86_64-efi --efi-directory=/tmp/esp --boot-directory=/tmp/esp/boot --removable --no-nvram || true
+
+        # cleanup mounts
+        sync
+        sudo umount /tmp/esp
+        sudo umount /tmp/root
+        rmdir /tmp/esp /tmp/root
+
+        sudo losetup -d "$LOOP"
+
+        # compress image to .img.gz
+        echo "Compressing image to ${IMG_FINAL} ..."
+        gzip -c "$IMG_NAME" > "$IMG_FINAL"
+        echo "Image produced: $(du -h "$IMG_NAME" "$IMG_FINAL" | sed -n '1,2p')"
+
+        # move outputs up to repo root so later steps can access
+        mkdir -p $GITHUB_WORKSPACE/build_artifacts
+        mv "$IMG_NAME" "$IMG_FINAL" $GITHUB_WORKSPACE/build_artifacts/ || true
 
     # ----------------------------------------
-    # 10. Generate release tag
+    # 9. Generate release tag
     # ----------------------------------------
     - name: Generate release tag
       if: steps.check_build.outputs.result != 'true'
       run: echo "RELEASE_TAG=v${{ env.LATEST }}-$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
 
     # ----------------------------------------
-    # 11. Push Git Tag
+    # 10. Create and push Git tag
     # ----------------------------------------
     - name: Create and push Git tag
       if: steps.check_build.outputs.result != 'true'
@@ -225,7 +287,7 @@ jobs:
         git push origin ${{ env.RELEASE_TAG }}
 
     # ----------------------------------------
-    # 12. Release
+    # 11. Create GitHub Release and upload firmware (.img.gz + rootfs)
     # ----------------------------------------
     - name: Create GitHub Release and upload firmware
       if: steps.check_build.outputs.result != 'true'
@@ -234,7 +296,8 @@ jobs:
         tag_name: ${{ env.RELEASE_TAG }}
         name: "OpenWrt x86_64 USB-ready ext4 ${{ env.LATEST }} Build #${{ github.run_number }}"
         files: |
-          imagebuilder/bin/targets/x86/64/openwrt-x86-64-usb.img
+          build_artifacts/openwrt-x86-64-usb.img
+          build_artifacts/openwrt-x86-64-usb.img.gz
           imagebuilder/bin/targets/x86/64/*-rootfs.tar.gz
       env:
         GITHUB_TOKEN: ${{ secrets.GH_PAT }}
