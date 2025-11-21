@@ -149,22 +149,23 @@ jobs:
         EOF
         chmod +x imagebuilder/files/etc/uci-defaults/99-install-ipk
 
-    # ----------------------------------------
-    # 7. Build firmware
+# ----------------------------------------
+    # 7. Build firmware (fixed quoting)
     # ----------------------------------------
     - name: Build firmware
       if: steps.check_build.outputs.result != 'true'
       run: |
         cd imagebuilder
-        PACKAGES="
+        PACKAGES=(
           luci luci-base bash curl ca-bundle ipset ip-full ruby ruby-yaml unzip
           iptables kmod-ipt-nat iptables-mod-extra iptables-mod-tproxy
           kmod-usb-net kmod-usb-net-rndis kmod-usb-net-cdc-ether
           kmod-usb-net-cdc-ncm kmod-usb-net-ipheth
           parted util-linux fdisk lsblk e2fsprogs resize2fs
           growpart cloud-utils-growpart
-        "
-        make image PROFILE="generic" FILES="files" PACKAGES="$PACKAGES"
+        )
+        PKG_STR=$(printf "%s " "${PACKAGES[@]}")
+        make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
 
     # ----------------------------------------
     # 8. Create USB image (BOOTABLE)
