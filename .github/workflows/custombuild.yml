@@ -60,7 +60,7 @@ jobs:
           bzip2 lzma binfmt-support qemu-user-static
 
     # ============================================================
-    # 5. DOWNLOAD IMAGE + RESIZE + INJECT CONFIG + PAKET
+    # 5. DOWNLOAD IMAGE + RESIZE + INJECT CONFIG + INSTALL PAKET
     - name: Download + Modify + Resize Partition + Install Packages
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
@@ -104,11 +104,14 @@ jobs:
         sudo mount --bind /sys $TARGET_ROOT/sys
         sudo mount --bind /dev $TARGET_ROOT/dev
 
+        # Hapus dnsmasq bawaan sebelum install dnsmasq-full
+        sudo chroot $TARGET_ROOT /bin/sh -c "opkg remove dnsmasq || true"
+
         OPENWRT_PKGS=(
+          dnsmasq-full
           luci
           luci-base
           luci-compat
-          dnsmasq-full
           bash
           curl
           ca-bundle
@@ -128,6 +131,7 @@ jobs:
           kmod-usb-net-rndis
           kmod-usb-net-rtl8xxxu
           block-mount
+          lsblk
         )
 
         for pkg in "${OPENWRT_PKGS[@]}"; do
