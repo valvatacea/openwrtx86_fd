@@ -60,7 +60,8 @@ jobs:
     # 3b. Debug output check_build
     # ================================================================
     - name: Debug check_build
-      run: echo "check_build result: ${{ steps.check_build.outputs.result }}"
+      run: |
+        echo "check_build result: ${{ steps.check_build.outputs.result }}"
 
     # ================================================================
     # 4. Install dependencies
