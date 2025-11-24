@@ -1,4 +1,4 @@
-name: OpenWrt x86_64 Auto Build + USB-ready + IPK (Non-Interactive Fixed Loop)
+name: OpenWrt x86_64 Auto Build + USB-ready + IPK (Non-Interactive Fixed Loop + opkg)
 
 permissions:
   contents: write
@@ -76,7 +76,7 @@ jobs:
         gunzip -f "$IMG_GZ" || true
 
     # ============================================================
-    # 6. Debug Image Size Before Resize
+    # 6. Debug Image Size (Before Resize)
     - name: Debug Image Size (Before Resize)
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
@@ -100,7 +100,7 @@ jobs:
         sudo resize2fs "${LOOP}p2"
 
     # ============================================================
-    # 8. Debug Image Size After Resize
+    # 8. Debug Image Size (After Resize)
     - name: Debug Image Size (After Resize)
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
@@ -116,24 +116,34 @@ jobs:
         LOOP=$(sudo losetup -f --show -P openwrt-x86-64-combined-ext4.img)
         mkdir -p /tmp/rootfs
         sudo mount "${LOOP}p2" /tmp/rootfs
+
         sudo mkdir -p /tmp/rootfs/etc/config
+        sudo mkdir -p /tmp/rootfs/var/lock
+        sudo mkdir -p /tmp/rootfs/tmp
+        sudo mkdir -p /tmp/rootfs/overlay
+
+        sudo mount --bind /proc /tmp/rootfs/proc
+        sudo mount --bind /sys /tmp/rootfs/sys
+        sudo mount --bind /dev /tmp/rootfs/dev
+
         echo "DEBUG: Top-level rootfs directories:"
         sudo find /tmp/rootfs -maxdepth 1 -type d | sed 's/^/ - /'
+
         cat | sudo tee /tmp/rootfs/etc/config/network <<'EOF'
         config interface 'lan'
             option device 'eth0'
             option proto 'static'
             option ipaddr '192.168.1.2'
             option netmask '255.255.255.0'
-        EOF
+EOF
 
     # ============================================================
     # 10. Install OpenWrt Packages Offline
     - name: Install OpenWrt Packages Offline
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
-        sudo mkdir -p /tmp/rootfs/tmp/ipk
         OPENWRT_PKGS=(dnsmasq-full luci luci-base luci-compat bash curl ca-bundle ipset ip-full ruby ruby-yaml unzip iptables kmod-ipt-nat iptables-mod-tproxy iptables-mod-extra kmod-tun ip6tables-mod-nat kmod-inet-diag kmod-nft-tproxy kmod-usb-net-rndis kmod-usb-net-rtl8xxxu block-mount lsblk)
+        sudo mkdir -p /tmp/rootfs/tmp/ipk
         for PKG in "${OPENWRT_PKGS[@]}"; do
           wget -q -P /tmp/rootfs/tmp/ipk "https://downloads.openwrt.org/releases/${{ env.LATEST }}/packages/x86_64/base/${PKG}_*.ipk" || true
         done
@@ -148,7 +158,6 @@ jobs:
           "https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk"
           "https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk"
         )
-        sudo mkdir -p /tmp/rootfs/tmp
         for url in "${GITHUB_IPK_LIST[@]}"; do
           fname=$(basename "$url")
           wget -q -O "/tmp/rootfs/tmp/$fname" "$url" || true
@@ -160,9 +169,13 @@ jobs:
     - name: Unmount RootFS & Cleanup
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
-        sudo umount /tmp/rootfs
+        sudo umount /tmp/rootfs/proc || true
+        sudo umount /tmp/rootfs/sys || true
+        sudo umount /tmp/rootfs/dev || true
+        sudo umount /tmp/rootfs || true
         LOOP=$(losetup -a | grep "openwrt-x86-64-combined-ext4.img" | cut -d: -f1)
-        sudo losetup -d "${LOOP}"
+        sudo losetup -d "$LOOP"
+
         mkdir -p build_artifacts
         cp "openwrt-x86-64-combined-ext4.img" build_artifacts/
         gzip -c "openwrt-x86-64-combined-ext4.img" > build_artifacts/"openwrt-x86-64-combined-ext4.img.gz"
