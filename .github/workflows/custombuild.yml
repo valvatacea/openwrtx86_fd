@@ -55,8 +55,7 @@ jobs:
     # 3b. Debug output check_build
     # ================================================================
     - name: Debug check_build
-      run: |
-        echo "check_build result: ${{ steps.check_build.outputs.result }}"
+      run: echo "check_build result: ${{ steps.check_build.outputs.result }}"
 
     # ================================================================
     # 4. Install dependencies
@@ -143,7 +142,7 @@ jobs:
         chmod +x imagebuilder/files/etc/uci-defaults/99-install-ipk
 
     # ================================================================
-    # 7. Download external IPK files with checksum
+    # 7. Download external IPK files
     # ================================================================
     - name: Download IPK files
       if: steps.check_build.outputs.result != 'true'
@@ -169,7 +168,7 @@ jobs:
         make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
 
     # ================================================================
-    # 9. Build combined-ext4 OpenWrt image
+    # 9. Build combined-ext4 OpenWrt image (bootable)
     # ================================================================
     - name: Build combined-ext4 OpenWrt image
       if: steps.check_build.outputs.result != 'true'
@@ -180,10 +179,17 @@ jobs:
         IMG_GZ="${IMG_NAME}.gz"
         IMG_SIZE="1500M"
         ROOTFS_TAR=$(ls *-rootfs.tar.gz | head -n1)
-        KERNEL=$(ls *-vmlinuz *-vmlinuz.bin 2>/dev/null | head -n1)
 
-        [ -z "$ROOTFS_TAR" ] && echo "ERROR: rootfs tar not found" && exit 1
-        [ -z "$KERNEL" ] && echo "WARNING: kernel not found"
+        # Download kernel if not exist
+        if ! ls *-vmlinuz *-vmlinuz.bin 1>/dev/null 2>&1; then
+          echo "Kernel not found, downloading..."
+          wget -q https://downloads.openwrt.org/releases/${LATEST}/targets/x86/64/openwrt-${LATEST}-x86-64-generic-kernel.bin
+          mv openwrt-${LATEST}-x86-64-generic-kernel.bin vmlinuz
+        fi
+
+        KERNEL=$(ls *-vmlinuz 2>/dev/null | head -n1 || true)
+        [ -z "$KERNEL" ] && KERNEL=$(ls *-vmlinuz.bin 2>/dev/null | head -n1 || true)
+        [ -z "$KERNEL" ] && echo "ERROR: kernel not found!" && exit 1
 
         LOOP=""
         mkdir -p /tmp/rootfs
@@ -198,11 +204,10 @@ jobs:
 
         fallocate -l $IMG_SIZE "$IMG_NAME"
         LOOP=$(sudo losetup -f --show "$IMG_NAME")
-
         sudo mkfs.ext4 -F "$LOOP"
         sudo mount "$LOOP" /tmp/rootfs
         sudo tar -xzf "$ROOTFS_TAR" -C /tmp/rootfs
-        [ -f "$KERNEL" ] && sudo cp "$KERNEL" /tmp/rootfs/vmlinuz
+        sudo cp "$KERNEL" /tmp/rootfs/vmlinuz
 
         sync
         sudo umount /tmp/rootfs
