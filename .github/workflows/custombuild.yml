@@ -134,11 +134,13 @@ jobs:
       run: |
         sudo mkdir -p /tmp/rootfs/tmp/ipk
         OPENWRT_PKGS=(dnsmasq-full luci luci-base luci-compat bash curl ca-bundle ipset ip-full ruby ruby-yaml unzip iptables kmod-ipt-nat iptables-mod-tproxy iptables-mod-extra kmod-tun ip6tables-mod-nat kmod-inet-diag kmod-nft-tproxy kmod-usb-net-rndis kmod-usb-net-rtl8xxxu block-mount lsblk)
+        URL="https://downloads.openwrt.org/releases/${{ env.LATEST }}/packages/x86_64/base/"
         for PKG in "${OPENWRT_PKGS[@]}"; do
-          URL="https://downloads.openwrt.org/releases/${{ env.LATEST }}/packages/x86_64/base/"
-          FNAME=$(curl -s "$URL" | grep -Po "${PKG}_[0-9]+\.[0-9]+.*_x86_64\.ipk" | sort -V | tail -1)
+          # ambil nama file IPK terbaru dari HTML listing
+          FNAME=$(curl -s "$URL" | grep -Po "${PKG}_[0-9]+\.[0-9]+.*_x86_64\.ipk" | head -1)
+          FNAME=${FNAME%%\"*}  # hapus sisa karakter HTML jika ada
           echo "Downloading $FNAME ..."
-          wget -P /tmp/rootfs/tmp/ipk "${URL}${FNAME}" || true
+          wget -q -P /tmp/rootfs/tmp/ipk "${URL}${FNAME}" || true
         done
         sudo mkdir -p /tmp/rootfs/var/lock
         sudo chroot /tmp/rootfs opkg install /tmp/ipk/*.ipk || true
