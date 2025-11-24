@@ -56,7 +56,8 @@ jobs:
     # ================================================================
     - name: Debug check_build
       run: |
-        echo "check_build result: ${{ steps.check_build.outputs.result }}"
+        echo "LATEST=$LATEST"
+        echo "steps.check_build.outputs.result='${{ steps.check_build.outputs.result }}'"
 
     # ================================================================
     # 4. Install dependencies
