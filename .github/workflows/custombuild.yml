@@ -202,14 +202,21 @@ jobs:
         done
 
     # ============================================================
-    # 12. Unmount RootFS & Detach Loop
-    - name: Unmount RootFS & Cleanup
+    # 12. Unmount RootFS & Cleanup
+    - name: Unmount RootFS & Detach Loop
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
-        # Cleanup
-        sudo umount /tmp/rootfs
-        LOOP=$(losetup -a | grep "openwrt-x86-64-combined-ext4.img" | cut -d: -f1)
-        sudo losetup -d "${LOOP}"
+        # Unmount rootfs jika masih ter-mount
+        if mountpoint -q /tmp/rootfs; then
+            sudo umount /tmp/rootfs
+        fi
+    
+        # Detach loop device jika masih ada
+        if [ -n "${LOOP}" ] && losetup "${LOOP}" >/dev/null 2>&1; then
+            sudo losetup -d "${LOOP}"
+        fi
+    
+        # Simpan hasil build
         mkdir -p build_artifacts
         cp "openwrt-x86-64-combined-ext4.img" build_artifacts/
         gzip -c "openwrt-x86-64-combined-ext4.img" > build_artifacts/"openwrt-x86-64-combined-ext4.img.gz"
