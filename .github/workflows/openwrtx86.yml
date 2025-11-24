@@ -36,22 +36,24 @@ jobs:
     # ================================================================
     # 3. Check if already built
     # ================================================================
-    - name: Check if already built
+    - name: Check if OpenWrt version already built
       id: check_build
       uses: actions/github-script@v6
       with:
         script: |
-          const version = process.env.LATEST.trim();
-          const prefix = `v${version}-`;
-
+          const version = (process.env.LATEST || "").trim(); // versi OpenWrt, misal "24.10.4"
           const releases = await github.rest.repos.listReleases({
             owner: context.repo.owner,
             repo: context.repo.repo,
-            per_page: 50
+            per_page: 100
           });
-
-          const exists = releases.data.some(r => r.tag_name.startsWith(prefix));
-
+    
+          // hanya cocokkan bagian versi OpenWrt di tag_name
+          const exists = releases.data.some(r =>
+            r.tag_name.includes(version)
+          );
+    
+          console.log("OpenWrt version already built?", exists);
           core.setOutput("result", exists ? "true" : "false");
       env:
         LATEST: ${{ env.LATEST }}
