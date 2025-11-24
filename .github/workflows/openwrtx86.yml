@@ -162,91 +162,60 @@ jobs:
         make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
 
     # ================================================================
-    # 9. Build "combined-ext4.img.gz" style image (OpenWrt-like)
-    #     -> total image size fixed to 1500M as requested
+    # 9. Modular Step: Create OpenWrt combined-ext4 image (bootable)
     # ================================================================
-    - name: Create OpenWrt combined-ext4 image (1500M)
+    - name: Build combined-ext4 OpenWrt image (modular)
       if: steps.check_build.outputs.result != 'true'
       run: |
         set -euxo pipefail
+
         cd imagebuilder/bin/targets/x86/64
 
-        ROOTFS_TAR=$(ls *-rootfs.tar.gz 2>/dev/null | head -n1 || true)
-        KERNEL=$(ls *-vmlinuz *-vmlinuz.bin 2>/dev/null | head -n1 || true)
+        IMG_NAME="openwrt-x86-64-combined-ext4.img"
+        IMG_GZ="${IMG_NAME}.gz"
+        IMG_SIZE="1500M"
+        ROOTFS_TAR=$(ls *-rootfs.tar.gz | head -n1)
+        KERNEL=$(ls *-vmlinuz *-vmlinuz.bin 2>/dev/null | head -n1)
+        LOOP=""
 
-        if [ -z "$ROOTFS_TAR" ]; then
-          echo "ERROR: rootfs tar not found" >&2
-          exit 1
-        fi
+        echo "RootFS: $ROOTFS_TAR"
+        echo "Kernel: $KERNEL"
+        echo "Image: $IMG_NAME"
 
-        IMG_NAME="openwrt-x86-64-combined-ext4-expanded.img"
-        IMG_FINAL="${IMG_NAME}.gz"
+        mkdir -p /tmp/rootfs
+        function cleanup() {
+          set +e
+          sudo umount /tmp/rootfs || true
+          [ -n "$LOOP" ] && sudo losetup -d "$LOOP" || true
+          rm -rf /tmp/rootfs
+        }
+        trap cleanup EXIT
+        cleanup
 
-        # Ukuran total image → 1500M (sesuai permintaan)
-        IMG_SIZE=1500M
-
-        # buat file image kosong
         fallocate -l $IMG_SIZE "$IMG_NAME"
         LOOP=$(sudo losetup -f --show "$IMG_NAME")
 
-        # Gunakan MBR (msdos) label supaya mirip dengan combined-ext4 resmi
-        sudo parted -s $LOOP mklabel msdos
-
-        # Partisi 1 → kernel (1MiB..17MiB ~= 16MB)
-        sudo parted -s $LOOP mkpart primary 1MiB 17MiB
-        # Partisi 2 → ext4 rootfs (17MiB..100%)
-        sudo parted -s $LOOP mkpart primary 17MiB 100%
-
-        sudo partprobe $LOOP || true
-        sudo losetup -d $LOOP
-        LOOP=$(sudo losetup -f --show -P "$IMG_NAME")
-
-        P1="${LOOP}p1"
-        P2="${LOOP}p2"
-
-        # Format partisi p2 sebagai ext4 (rootfs). p1 akan dibuat juga ext2/ext4
-        sudo mkfs.ext4 -F "$P2"
-        sudo mkfs.ext4 -F "$P1"
-
-        mkdir -p /tmp/p1 /tmp/p2
-        sudo mount "$P2" /tmp/p2
-
-        # Extract rootfs into partition 2
-        sudo tar -xzf "$ROOTFS_TAR" -C /tmp/p2
-
-        # Put kernel into partition 1 so some bootloaders can read it
-        sudo mount "$P1" /tmp/p1
-        if [ -n "$KERNEL" ] && [ -f "$KERNEL" ]; then
-          sudo cp "$KERNEL" /tmp/p1/vmlinuz || true
+        if command -v syslinux >/dev/null 2>&1; then
+          dd if=/usr/lib/syslinux/mbr/mbr.bin of="$LOOP" bs=440 count=1 conv=notrunc
         fi
 
-        # Create a simple syslinux/extlinux config on p1 to boot (works on many systems)
-        sudo mkdir -p /tmp/p1/boot/extlinux
-        sudo tee /tmp/p1/boot/extlinux/extlinux.conf > /dev/null <<'EOF'
-        DEFAULT openwrt
-        TIMEOUT 50
-        LABEL openwrt
-            KERNEL /vmlinuz
-            APPEND root=/dev/sda2 rw
-        EOF
+        sudo mkfs.ext4 -F "$LOOP"
+        sudo mount "$LOOP" /tmp/rootfs
+        sudo tar -xzf "$ROOTFS_TAR" -C /tmp/rootfs
 
-        # Install extlinux MBR + bootloader to the image (best-effort)
-        # Note: syslinux-extlinux may require extlinux package; installed earlier in deps
-        sudo extlinux --install /tmp/p1/boot/extlinux || true
-
-        # Try to write a generic MBR boot record (syslinux) to the image
-        if command -v syslinux >/dev/null 2>&1; then
-          sudo dd if=/usr/lib/syslinux/mbr/mbr.bin of="$LOOP" bs=440 count=1 conv=notrunc || true
+        if [ -n "$KERNEL" ] && [ -f "$KERNEL" ]; then
+          sudo cp "$KERNEL" /tmp/rootfs/vmlinuz
         fi
 
         sync
-        sudo umount /tmp/p1 /tmp/p2
-        rmdir /tmp/p1 /tmp/p2
+        sudo umount /tmp/rootfs
         sudo losetup -d "$LOOP"
+        LOOP=""
 
-        gzip -c "$IMG_NAME" > "$IMG_FINAL"
+        gzip -c "$IMG_NAME" > "$IMG_GZ"
         mkdir -p $GITHUB_WORKSPACE/build_artifacts
-        mv "$IMG_NAME" "$IMG_FINAL" $GITHUB_WORKSPACE/build_artifacts/
+        mv "$IMG_NAME" "$IMG_GZ" $GITHUB_WORKSPACE/build_artifacts/
+        echo "✅ Combined-ext4 OpenWrt image created successfully!"
 
     # ================================================================
     # 10. Generate release tag
@@ -274,9 +243,9 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ env.RELEASE_TAG }}
-        name: "OpenWrt x86_64 combined-ext4-expanded 1500M ${{ env.LATEST }} Build #${{ github.run_number }}"
+        name: "OpenWrt x86_64 combined-ext4 1500M ${{ env.LATEST }} Build #${{ github.run_number }}"
         files: |
-          build_artifacts/openwrt-x86-64-combined-ext4-expanded.img.gz
+          build_artifacts/openwrt-x86-64-combined-ext4.img.gz
           imagebuilder/bin/targets/x86/64/*-rootfs.tar.gz
       env:
         GITHUB_TOKEN: ${{ secrets.GH_PAT }}
