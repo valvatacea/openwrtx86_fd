@@ -153,35 +153,50 @@ jobs:
         
         echo "DEBUG: Removing dnsmasq package from rootfs"
         sudo chroot /tmp/rootfs opkg remove dnsmasq || true
-
+    
+    
     # ============================================================
-    # 10. Install OpenWrt Packages Offline (Fixed)
+    # 10. Install OpenWrt Packages Offline (Fleksibel)
     - name: Install OpenWrt Packages Offline
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
-        # Buat direktori untuk IPK
+        set -euo pipefail
+    
+        # Direktori IPK di rootfs
         sudo mkdir -p /tmp/rootfs/tmp/ipk
     
-        # Daftar paket OpenWrt
+        # Daftar paket OpenWrt yang ingin diinstall
         OPENWRT_PKGS=(dnsmasq-full luci luci-base luci-compat bash curl ca-bundle ipset ip-full ruby ruby-yaml unzip iptables kmod-ipt-nat iptables-mod-tproxy iptables-mod-extra kmod-tun ip6tables-mod-nat kmod-inet-diag kmod-nft-tproxy kmod-usb-net-rndis kmod-usb-net-rtl8xxxu block-mount lsblk)
-        URL="https://downloads.openwrt.org/releases/${{ env.LATEST }}/packages/x86_64/base/"
     
-        # Download paket terbaru menggunakan curl & wget
+        # Ambil semua subdirektori di packages/x86_64
+        PKG_DIRS=$(curl -s "https://downloads.openwrt.org/releases/${LATEST}/packages/x86_64/" \
+                   | grep -Po '(?<=href=")[^"]+/' | tr -d '/')
+    
         for PKG in "${OPENWRT_PKGS[@]}"; do
-          FNAME=$(curl -s "$URL" | grep -Po "${PKG}_[0-9]+\.[0-9]+.*_x86_64\.ipk" | head -1)
-          FNAME=${FNAME%%\"*}  # hapus karakter tambahan
-          if [ -n "$FNAME" ]; then
-            echo "Downloading $FNAME ..."
-            wget -q -P /tmp/rootfs/tmp/ipk "${URL}${FNAME}" || true
-          else
-            echo "WARNING: Paket $PKG tidak ditemukan!"
+          FOUND=0
+          for DIR in $PKG_DIRS; do
+            URL="https://downloads.openwrt.org/releases/${LATEST}/packages/x86_64/$DIR/"
+            # Cari file .ipk sesuai paket
+            FNAME=$(curl -s "$URL" | grep -Po "${PKG}_[0-9a-zA-Z\.\-\+]+_x86_64\.ipk" | head -1)
+            if [ -n "$FNAME" ]; then
+              echo "Downloading $FNAME from $DIR ..."
+              wget -q -P /tmp/rootfs/tmp/ipk "${URL}${FNAME}" || true
+              FOUND=1
+              break
+            fi
+          done
+          if [ $FOUND -eq 0 ]; then
+            echo "WARNING: Paket $PKG tidak ditemukan di semua subdir"
           fi
         done
     
-        # Install semua paket
-        echo "DEBUG: Installing downloaded IPKs ..."
-        sudo chroot /tmp/rootfs opkg install /tmp/ipk/*.ipk || true
-    
+        # Install IPKs hanya jika ada
+        if compgen -G "/tmp/rootfs/tmp/ipk/*.ipk" > /dev/null; then
+          echo "DEBUG: Installing downloaded IPKs ..."
+          sudo chroot /tmp/rootfs opkg install /tmp/ipk/*.ipk || true
+        else
+          echo "WARNING: Tidak ada file IPK ditemukan, skip install"
+        fi
         
     # ============================================================
     # 11b. Install GitHub IPK Offline (OpenClash & Theme)
