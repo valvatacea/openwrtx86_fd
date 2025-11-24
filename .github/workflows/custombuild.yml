@@ -1,4 +1,4 @@
-name: OpenWrt x86_64 Auto Build + USB-ready + IPK (Non-Interactive Fixed)
+name: OpenWrt x86_64 Auto Build + USB-ready + IPK (Non-Interactive Fixed Loop)
 
 permissions:
   contents: write
@@ -60,7 +60,7 @@ jobs:
           bzip2 lzma binfmt-support qemu-user-static kpartx
 
     # ============================================================
-    # 5. Download, Modify, Resize Partition, Install Packages Offline
+    # 5. Download OpenWrt Image
     - name: Download OpenWrt Image
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
@@ -75,6 +75,8 @@ jobs:
         wget -q --show-progress "$IMG_URL" -O "$IMG_GZ"
         gunzip -f "$IMG_GZ" || true
 
+    # ============================================================
+    # 6. Debug Image Size Before Resize
     - name: Debug Image Size (Before Resize)
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
@@ -82,12 +84,14 @@ jobs:
         stat -c "File: %n | Bytes: %s" "$IMG_NAME"
         du -h "$IMG_NAME"
 
+    # ============================================================
+    # 7. Resize Image & Partition & Filesystem
     - name: Resize Image & Partition
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
         IMG_NAME="openwrt-x86-64-combined-ext4.img"
         TARGET_SIZE="1500M"
-        LOOP=$(sudo losetup -f --show "$IMG_NAME")
+        LOOP=$(sudo losetup -f --show -P "$IMG_NAME")   # <- auto map partitions
         sudo qemu-img resize -f raw "$IMG_NAME" $TARGET_SIZE
         sudo parted "${LOOP}" -s resizepart 2 100%
         sudo partprobe "${LOOP}" || true
@@ -95,6 +99,8 @@ jobs:
         sudo e2fsck -fy "${LOOP}p2" || true
         sudo resize2fs "${LOOP}p2"
 
+    # ============================================================
+    # 8. Debug Image Size After Resize
     - name: Debug Image Size (After Resize)
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
@@ -102,10 +108,12 @@ jobs:
         stat -c "File: %n | Bytes: %s" "$IMG_NAME"
         du -h "$IMG_NAME"
 
+    # ============================================================
+    # 9. Mount RootFS & Configure Network
     - name: Mount RootFS & Add Network Config
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
-        LOOP=$(sudo losetup -f --show openwrt-x86-64-combined-ext4.img)
+        LOOP=$(sudo losetup -f --show -P openwrt-x86-64-combined-ext4.img)
         mkdir -p /tmp/rootfs
         sudo mount "${LOOP}p2" /tmp/rootfs
         sudo mkdir -p /tmp/rootfs/etc/config
@@ -119,18 +127,21 @@ jobs:
             option netmask '255.255.255.0'
         EOF
 
+    # ============================================================
+    # 10. Install OpenWrt Packages Offline
     - name: Install OpenWrt Packages Offline
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
-        mkdir -p ipk
+        sudo mkdir -p /tmp/rootfs/tmp/ipk
         OPENWRT_PKGS=(dnsmasq-full luci luci-base luci-compat bash curl ca-bundle ipset ip-full ruby ruby-yaml unzip iptables kmod-ipt-nat iptables-mod-tproxy iptables-mod-extra kmod-tun ip6tables-mod-nat kmod-inet-diag kmod-nft-tproxy kmod-usb-net-rndis kmod-usb-net-rtl8xxxu block-mount lsblk)
         for PKG in "${OPENWRT_PKGS[@]}"; do
-          wget -q -P ipk "https://downloads.openwrt.org/releases/${{ env.LATEST }}/packages/x86_64/base/${PKG}_*.ipk" || true
-          wget -q -P ipk "https://downloads.openwrt.org/releases/${{ env.LATEST }}/targets/x86/64/packages/${PKG}_*.ipk" || true
+          wget -q -P /tmp/rootfs/tmp/ipk "https://downloads.openwrt.org/releases/${{ env.LATEST }}/packages/x86_64/base/${PKG}_*.ipk" || true
         done
-        sudo opkg --offline-root=/tmp/rootfs install ipk/*.ipk
+        sudo chroot /tmp/rootfs opkg install /tmp/ipk/*.ipk || true
 
-    - name: Install GitHub IPK Offline (OpenClash & Theme)
+    # ============================================================
+    # 11. Install GitHub IPK Offline (OpenClash & Theme)
+    - name: Install GitHub IPK Offline
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
         GITHUB_IPK_LIST=(
@@ -141,9 +152,11 @@ jobs:
         for url in "${GITHUB_IPK_LIST[@]}"; do
           fname=$(basename "$url")
           wget -q -O "/tmp/rootfs/tmp/$fname" "$url" || true
-          sudo opkg --offline-root=/tmp/rootfs install /tmp/rootfs/tmp/$fname || true
+          sudo chroot /tmp/rootfs opkg install /tmp/$fname || true
         done
 
+    # ============================================================
+    # 12. Unmount RootFS & Detach Loop
     - name: Unmount RootFS & Cleanup
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
@@ -155,13 +168,13 @@ jobs:
         gzip -c "openwrt-x86-64-combined-ext4.img" > build_artifacts/"openwrt-x86-64-combined-ext4.img.gz"
 
     # ============================================================
-    # 6. Generate release tag
+    # 13. Generate release tag
     - name: Generate release tag
       if: env.CHECK_BUILD_RESULT != 'true'
       run: echo "RELEASE_TAG=v${{ env.LATEST }}-$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
 
     # ============================================================
-    # 7. Push git tag
+    # 14. Push git tag
     - name: Create and push git tag
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
@@ -171,7 +184,7 @@ jobs:
         git push origin ${{ env.RELEASE_TAG }}
 
     # ============================================================
-    # 8. Upload firmware
+    # 15. Upload firmware
     - name: Upload firmware
       if: env.CHECK_BUILD_RESULT != 'true'
       uses: softprops/action-gh-release@v1
