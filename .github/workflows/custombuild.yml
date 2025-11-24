@@ -89,12 +89,12 @@ jobs:
         LOOP=$(sudo losetup -f --show -P "$IMG_NAME")
 
         # Resize root filesystem langsung tanpa growpart
-        sudo e2fsck -fy "${LOOP}p1" || true
-        sudo resize2fs "${LOOP}p1"
+        sudo e2fsck -fy "${LOOP}p2" || true
+        sudo resize2fs "${LOOP}p2"
 
         # Mount rootfs untuk menambahkan file konfigurasi dan IPK
         mkdir -p /tmp/rootfs
-        sudo mount "${LOOP}p1" /tmp/rootfs
+        sudo mount "${LOOP}p2" /tmp/rootfs
 
         # Buat direktori konfigurasi dan IPK
         sudo mkdir -p /tmp/rootfs/etc/config /tmp/rootfs/etc/init.d /tmp/rootfs/etc/uci-defaults /tmp/rootfs/tmp/ipk
@@ -147,7 +147,7 @@ jobs:
           https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk || true
 
         # Hitung root partition size sekarang
-        ROOT_SIZE=$(sudo blockdev --getsize64 "${LOOP}p1")
+        ROOT_SIZE=$(sudo blockdev --getsize64 "${LOOP}p2")
         ROOT_SIZE_MB=$((ROOT_SIZE / 1024 / 1024))
         echo "Root partition size: ${ROOT_SIZE_MB} MB"
         echo "ROOT_SIZE_MB=${ROOT_SIZE_MB}" >> $GITHUB_ENV
