@@ -34,7 +34,7 @@ jobs:
         echo "Latest OpenWrt version: $LATEST"
 
     # ================================================================
-    # 3. Check if OpenWrt version already built
+    # 3. Check if OpenWrt version already built (gunakan GITHUB_ENV)
     # ================================================================
     - name: Check if OpenWrt version already built
       id: check_build
@@ -49,8 +49,9 @@ jobs:
           });
           const exists = releases.data.some(r => r.tag_name.includes(version));
           console.log("OpenWrt version already built?", exists);
-          const core = require('@actions/core');
-          core.setOutput("result", exists ? "true" : "false");
+
+          // Simpan ke environment variable agar step selanjutnya bisa membaca
+          require('fs').appendFileSync(process.env.GITHUB_ENV, `CHECK_BUILD_RESULT=${exists ? "true" : "false"}\n`);
 
     # ================================================================
     # 3b. Debug output check_build
@@ -58,13 +59,13 @@ jobs:
     - name: Debug check_build
       run: |
         echo "LATEST=$LATEST"
-        echo "steps.check_build.outputs.result='${{ steps.check_build.outputs.result }}'"
+        echo "CHECK_BUILD_RESULT=$CHECK_BUILD_RESULT"
 
     # ================================================================
     # 4. Install dependencies
     # ================================================================
     - name: Install dependencies
-      if: steps.check_build.outputs.result != 'true'
+      if: env.CHECK_BUILD_RESULT != 'true'
       run: |
         sudo apt-get update
         sudo apt-get install -y wget zstd xz-utils squashfs-tools \
@@ -77,14 +78,14 @@ jobs:
     # 5. Cache & Download ImageBuilder
     # ================================================================
     - name: Cache ImageBuilder
-      if: steps.check_build.outputs.result != 'true'
+      if: env.CHECK_BUILD_RESULT != 'true'
       uses: actions/cache@v3
       with:
         path: imagebuilder
         key: imagebuilder-${{ env.LATEST }}
 
     - name: Download ImageBuilder
-      if: steps.check_build.outputs.result != 'true' && steps.cache-hit != 'true'
+      if: env.CHECK_BUILD_RESULT != 'true' && steps.cache-hit != 'true'
       run: |
         set -e
         URL="https://downloads.openwrt.org/releases/${LATEST}/targets/x86/64/openwrt-imagebuilder-${LATEST}-x86-64.Linux-x86_64.tar.zst"
@@ -97,7 +98,7 @@ jobs:
     # 6. Add custom files
     # ================================================================
     - name: Add custom files
-      if: steps.check_build.outputs.result != 'true'
+      if: env.CHECK_BUILD_RESULT != 'true'
       run: |
         mkdir -p imagebuilder/files/etc/config imagebuilder/files/etc/init.d imagebuilder/files/etc/uci-defaults imagebuilder/files/tmp/ipk
         # network config
@@ -148,7 +149,7 @@ jobs:
     # 7. Download external IPK files
     # ================================================================
     - name: Download IPK files
-      if: steps.check_build.outputs.result != 'true'
+      if: env.CHECK_BUILD_RESULT != 'true'
       run: |
         wget -O imagebuilder/files/tmp/ipk/luci-theme-alpha4.ipk \
           https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk || true
@@ -159,7 +160,7 @@ jobs:
     # 8. Build firmware
     # ================================================================
     - name: Build firmware
-      if: steps.check_build.outputs.result != 'true'
+      if: env.CHECK_BUILD_RESULT != 'true'
       run: |
         cd imagebuilder
         PACKAGES=(luci luci-base bash curl ca-bundle ipset ip-full ruby ruby-yaml unzip \
@@ -174,7 +175,7 @@ jobs:
     # 9. Build combined-ext4 OpenWrt image (bootable)
     # ================================================================
     - name: Build combined-ext4 OpenWrt image
-      if: steps.check_build.outputs.result != 'true'
+      if: env.CHECK_BUILD_RESULT != 'true'
       run: |
         set -euxo pipefail
         cd imagebuilder/bin/targets/x86/64
@@ -224,14 +225,14 @@ jobs:
     # 10. Generate release tag
     # ================================================================
     - name: Generate release tag
-      if: steps.check_build.outputs.result != 'true'
+      if: env.CHECK_BUILD_RESULT != 'true'
       run: echo "RELEASE_TAG=v${{ env.LATEST }}-$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
 
     # ================================================================
     # 11. Create and push Git tag
     # ================================================================
     - name: Create and push Git tag
-      if: steps.check_build.outputs.result != 'true'
+      if: env.CHECK_BUILD_RESULT != 'true'
       run: |
         git config user.name "github-actions"
         git config user.email "github-actions@github.com"
@@ -242,7 +243,7 @@ jobs:
     # 12. Create GitHub Release & upload firmware
     # ================================================================
     - name: Create GitHub Release and upload firmware
-      if: steps.check_build.outputs.result != 'true'
+      if: env.CHECK_BUILD_RESULT != 'true'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ env.RELEASE_TAG }}
