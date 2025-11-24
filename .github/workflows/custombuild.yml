@@ -6,7 +6,7 @@ permissions:
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 3 * * *" # Jalankan otomatis setiap hari jam 03:00 UTC
+    - cron: "0 3 * * *"
 
 jobs:
   build:
@@ -34,7 +34,7 @@ jobs:
         echo "Latest OpenWrt version: $LATEST"
 
     # ================================================================
-    # 3. Check if version already built (hanya cocok versi OpenWrt)
+    # 3. Check if OpenWrt version already built (hanya cocok versi OpenWrt)
     # ================================================================
     - name: Check if OpenWrt version already built
       id: check_build
@@ -49,14 +49,15 @@ jobs:
           });
 
           const exists = releases.data.some(r => r.tag_name.includes(version));
-
           console.log("OpenWrt version already built?", exists);
-          core.setOutput("result", exists ? "true" : "false");
+
+          // Perbaikan: gunakan return untuk set output
+          return { result: exists ? "true" : "false" };
       env:
         LATEST: ${{ env.LATEST }}
 
     # ================================================================
-    # Debug output check_build
+    # 3b. Debug output check_build
     # ================================================================
     - name: Debug check_build
       run: echo "check_build result: ${{ steps.check_build.outputs.result }}"
@@ -87,7 +88,7 @@ jobs:
         mv openwrt-imagebuilder-* imagebuilder
 
     # ================================================================
-    # 6. Tambahkan file custom untuk konfigurasi & IPK
+    # 6. Add custom files
     # ================================================================
     - name: Add custom files
       if: steps.check_build.outputs.result != 'true'
@@ -108,7 +109,6 @@ jobs:
             option proto 'dhcp'
         EOF
 
-        # resize rootfs first boot
         cat > imagebuilder/files/etc/init.d/resize-rootfs <<'EOF'
         #!/bin/sh /etc/rc.common
         START=99
@@ -126,7 +126,6 @@ jobs:
         EOF
         chmod +x imagebuilder/files/etc/init.d/resize-rootfs
 
-        # auto install IPK first boot
         cat > imagebuilder/files/etc/uci-defaults/99-install-ipk <<'EOF'
         #!/bin/sh
         IPK_DIR="/tmp/ipk"
@@ -150,7 +149,7 @@ jobs:
           https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk || true
 
     # ================================================================
-    # 8. Build firmware OpenWrt
+    # 8. Build firmware
     # ================================================================
     - name: Build firmware
       if: steps.check_build.outputs.result != 'true'
@@ -165,9 +164,9 @@ jobs:
         make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
 
     # ================================================================
-    # 9. Build combined-ext4 OpenWrt image (bootable)
+    # 9. Build combined-ext4 OpenWrt image
     # ================================================================
-    - name: Build combined-ext4 OpenWrt image (modular)
+    - name: Build combined-ext4 OpenWrt image
       if: steps.check_build.outputs.result != 'true'
       run: |
         set -euxo pipefail
@@ -199,9 +198,7 @@ jobs:
         sudo mkfs.ext4 -F "$LOOP"
         sudo mount "$LOOP" /tmp/rootfs
         sudo tar -xzf "$ROOTFS_TAR" -C /tmp/rootfs
-        if [ -n "$KERNEL" ] && [ -f "$KERNEL" ]; then
-          sudo cp "$KERNEL" /tmp/rootfs/vmlinuz
-        fi
+        [ -f "$KERNEL" ] && sudo cp "$KERNEL" /tmp/rootfs/vmlinuz
 
         sync
         sudo umount /tmp/rootfs
