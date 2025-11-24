@@ -34,21 +34,25 @@ jobs:
         echo "Latest OpenWrt version: $LATEST"
 
     # ================================================================
-    # 3. Cek apakah versi terbaru sudah dibuild
+    # 3. Check if already built
     # ================================================================
     - name: Check if already built
       id: check_build
       uses: actions/github-script@v6
       with:
         script: |
-          const latest = process.env.LATEST;
+          const version = process.env.LATEST.trim();
+          const prefix = `v${version}-`;
+
           const releases = await github.rest.repos.listReleases({
             owner: context.repo.owner,
             repo: context.repo.repo,
-            per_page: 20
+            per_page: 50
           });
-          const alreadyBuilt = releases.data.some(r => r.tag_name.includes(latest));
-          core.setOutput("result", alreadyBuilt);
+
+          const exists = releases.data.some(r => r.tag_name.startsWith(prefix));
+
+          core.setOutput("result", exists ? "true" : "false");
       env:
         LATEST: ${{ env.LATEST }}
 
