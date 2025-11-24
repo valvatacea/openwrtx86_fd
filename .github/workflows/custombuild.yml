@@ -135,7 +135,7 @@ jobs:
         sudo mkdir -p /tmp/rootfs/tmp/ipk
         OPENWRT_PKGS=(dnsmasq-full luci luci-base luci-compat bash curl ca-bundle ipset ip-full ruby ruby-yaml unzip iptables kmod-ipt-nat iptables-mod-tproxy iptables-mod-extra kmod-tun ip6tables-mod-nat kmod-inet-diag kmod-nft-tproxy kmod-usb-net-rndis kmod-usb-net-rtl8xxxu block-mount lsblk)
         for PKG in "${OPENWRT_PKGS[@]}"; do
-          wget -q -P /tmp/rootfs/tmp/ipk "https://downloads.openwrt.org/releases/${{ env.LATEST }}/packages/x86_64/base/${PKG}_*.ipk" || true
+          wget -q -P /tmp/rootfs/tmp/ipk "https://downloads.openwrt.org/releases/${{ env.LATEST }}/packages/x86_64/base/${PKG}_*.ipk"
         done
         sudo mkdir -p /tmp/rootfs/var/lock
         sudo chroot /tmp/rootfs opkg install /tmp/ipk/*.ipk || true
