@@ -1,4 +1,4 @@
-name: OpenWrt x86_64 Auto Build + USB-ready + IPK (Mini 150MB Non-Interactive) [FINAL]
+name: OpenWrt x86_64 Auto Build + USB-ready + IPK (Non-Interactive) [DEBUG]
 
 permissions:
   contents: write
@@ -23,7 +23,7 @@ jobs:
       uses: actions/checkout@v4
 
     # ============================================================
-    # 2. GET LATEST OPENWRT VERSION
+    # 2. AMBIL VERSI OPENWRT PALING BARU
     - name: Get latest OpenWrt version
       id: get_version
       run: |
@@ -32,7 +32,7 @@ jobs:
         echo "Latest OpenWrt version: $LATEST"
 
     # ============================================================
-    # 3. CHECK IF VERSION ALREADY BUILT
+    # 3. CEK APA SUDAH ADA RELEASE VERSI INI?
     - name: Check if OpenWrt version already built
       id: check_build
       uses: actions/github-script@v6
@@ -82,14 +82,13 @@ jobs:
 
         sudo qemu-img resize -f raw "$IMG_NAME" $TARGET_SIZE
 
+        echo "DEBUG: Mount loop device"
         LOOP=$(sudo losetup -f --show -P "$IMG_NAME")
         sudo parted "${LOOP}" -s resizepart 2 100%
         sudo partprobe "${LOOP}" || true
         sleep 1
         sudo e2fsck -fy "${LOOP}p2" || true
         sudo resize2fs "${LOOP}p2"
-
-        echo "DEBUG: Resize selesai"
 
         mkdir -p /tmp/rootfs
         sudo mount "${LOOP}p2" /tmp/rootfs
@@ -107,19 +106,24 @@ jobs:
             option netmask '255.255.255.0'
         EOF
 
-        # =====================================================
+        # =====================
         # INSTALL PAKET BAWAAN OPENWRT LANGSUNG
-        # =====================================================
+        # =====================
         TARGET_ROOT=/tmp/rootfs
         sudo mount --bind /proc $TARGET_ROOT/proc
         sudo mount --bind /sys $TARGET_ROOT/sys
         sudo mount --bind /dev $TARGET_ROOT/dev
 
+        # Buat direktori yang dibutuhkan opkg
+        sudo mkdir -p $TARGET_ROOT/var/lock
+        sudo mkdir -p $TARGET_ROOT/tmp
+        sudo mkdir -p $TARGET_ROOT/overlay
+
         echo "DEBUG: Paket bawaan sebelum modifikasi"
         sudo chroot $TARGET_ROOT /bin/sh -c "opkg list-installed"
 
         # Hapus dnsmasq bawaan sebelum install dnsmasq-full
-        sudo chroot $TARGET_ROOT /bin/sh -c "opkg remove dnsmasq || true"
+        sudo chroot $TARGET_ROOT /bin/sh -c 'opkg remove dnsmasq || true'
 
         OPENWRT_PKGS=(
           dnsmasq-full
@@ -156,9 +160,9 @@ jobs:
         echo "DEBUG: Paket setelah install"
         sudo chroot $TARGET_ROOT /bin/sh -c "opkg list-installed"
 
-        # =====================================================
+        # =====================
         # OpenClash & Alpha theme langsung install
-        # =====================================================
+        # =====================
         GITHUB_IPK_LIST=(
           "https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk"
           "https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk"
@@ -174,21 +178,8 @@ jobs:
         echo "DEBUG: Isi direktori tmp IPK"
         sudo ls -lh $TARGET_ROOT/tmp
 
-        # =====================================================
-        # AUTO EXPAND ROOTFS SAAT FIRST BOOT
-        # =====================================================
-        cat | sudo tee $TARGET_ROOT/etc/uci-defaults/99-auto-expand-rootfs <<'EOF'
-        #!/bin/sh
-        ROOT_DEV=$(mount | grep ' / ' | awk '{print $1}')
-        echo "Expanding root filesystem on first boot: $ROOT_DEV"
-        sleep 2
-        e2fsck -fy $ROOT_DEV
-        resize2fs $ROOT_DEV
-        rm -f /etc/uci-defaults/99-auto-expand-rootfs
-        EOF
-        sudo chmod +x $TARGET_ROOT/etc/uci-defaults/99-auto-expand-rootfs
-
-        echo "DEBUG: Auto-expand script ditambahkan"
+        echo "DEBUG: Mount point aktif sebelum unmount"
+        mount | grep /tmp/rootfs || true
 
         sudo umount $TARGET_ROOT/proc
         sudo umount $TARGET_ROOT/sys
@@ -203,7 +194,7 @@ jobs:
         gzip -c "$IMG_NAME" > build_artifacts/"${IMG_NAME}.gz"
 
     # ============================================================
-    # 6. GENERATE RELEASE TAG
+    # 6. BUAT TAG RELEASE
     - name: Generate release tag
       if: env.CHECK_BUILD_RESULT != 'true'
       run: echo "RELEASE_TAG=v${{ env.LATEST }}-$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
@@ -219,7 +210,7 @@ jobs:
         git push origin ${{ env.RELEASE_TAG }}
 
     # ============================================================
-    # 8. UPLOAD FIRMWARE KE RELEASE
+    # 8. UPLOAD KE RELEASE
     - name: Upload firmware
       if: env.CHECK_BUILD_RESULT != 'true'
       uses: softprops/action-gh-release@v1
