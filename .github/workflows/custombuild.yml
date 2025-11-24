@@ -86,7 +86,7 @@ jobs:
 
         # Download and decompress official image
         wget -q --show-progress "$IMG_URL" -O "$IMG_GZ"
-        gunzip -f "$IMG_GZ"
+        gunzip -f "$IMG_GZ" || true
 
         # Resize image to 1500MB
         sudo qemu-img resize "$IMG_NAME" $TARGET_SIZE
