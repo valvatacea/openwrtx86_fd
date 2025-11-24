@@ -1,4 +1,4 @@
-name: OpenWrt x86_64 Auto Build + USB-ready + IPK (Hybrid)
+name: OpenWrt x86_64 Auto Build + USB-ready + IPK (Mini 150MB)
 
 permissions:
   contents: write
@@ -48,13 +48,7 @@ jobs:
             per_page: 100
           });
           const exists = releases.data.some(r => r.tag_name.includes(version));
-          console.log("OpenWrt version already built?", exists);
           require('fs').appendFileSync(process.env.GITHUB_ENV, `CHECK_BUILD_RESULT=${exists ? "true" : "false"}\n`);
-
-    - name: Debug check_build
-      run: |
-        echo "LATEST=$LATEST"
-        echo "CHECK_BUILD_RESULT=$CHECK_BUILD_RESULT"
 
     # ================================================================
     # 4. Install dependencies
@@ -70,9 +64,9 @@ jobs:
           bzip2 lzma binfmt-support qemu-user-static
 
     # ================================================================
-    # 5. Hybrid build: Resize official combined-ext4 image
+    # 5. Download image and resize root partition (mini 150MB)
     # ================================================================
-    - name: Hybrid Resize combined-ext4 image and add custom files/IPK
+    - name: Hybrid Resize root partition only + add custom files/IPK
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
         set -euxo pipefail
@@ -88,13 +82,20 @@ jobs:
         wget -q --show-progress "$IMG_URL" -O "$IMG_GZ"
         gunzip -f "$IMG_GZ" || true
 
-        # Resize image to 1500MB
+        # Resize image file
         sudo qemu-img resize "$IMG_NAME" $TARGET_SIZE
 
         # Setup loop device
         LOOP=$(sudo losetup -f --show -P "$IMG_NAME")
+
+        # Resize root partition only
+        sudo growpart $LOOP 1 || true
+        sudo e2fsck -f "${LOOP}p1"
+        sudo resize2fs "${LOOP}p1"
+
+        # Mount rootfs
         mkdir -p /tmp/rootfs
-        sudo mount "${LOOP}p1" /tmp/rootfs || sudo mount "$LOOP" /tmp/rootfs
+        sudo mount "${LOOP}p1" /tmp/rootfs
 
         # Add custom files
         sudo mkdir -p /tmp/rootfs/etc/config /tmp/rootfs/etc/init.d /tmp/rootfs/etc/uci-defaults /tmp/rootfs/tmp/ipk
@@ -114,6 +115,7 @@ jobs:
             option proto 'dhcp'
         EOF
 
+        # Add root resize script at first boot
         cat | sudo tee /tmp/rootfs/etc/init.d/resize-rootfs <<'EOF'
         #!/bin/sh /etc/rc.common
         START=99
@@ -131,6 +133,7 @@ jobs:
         EOF
         sudo chmod +x /tmp/rootfs/etc/init.d/resize-rootfs
 
+        # Auto-install IPKs
         cat | sudo tee /tmp/rootfs/etc/uci-defaults/99-install-ipk <<'EOF'
         #!/bin/sh
         IPK_DIR="/tmp/ipk"
@@ -142,7 +145,7 @@ jobs:
         EOF
         sudo chmod +x /tmp/rootfs/etc/uci-defaults/99-install-ipk
 
-        # Download sample IPKs
+        # Download sample IPKs (opsional)
         sudo wget -O /tmp/rootfs/tmp/ipk/luci-theme-alpha4.ipk \
           https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk || true
         sudo wget -O /tmp/rootfs/tmp/ipk/luci-app-openclash.ipk \
@@ -155,7 +158,7 @@ jobs:
 
         # Save artifacts
         mkdir -p $GITHUB_WORKSPACE/build_artifacts
-        cp "$IMG_NAME" $GITHUB_WORKSPACE/build_artifacts/   # Simpan file .img asli
+        cp "$IMG_NAME" $GITHUB_WORKSPACE/build_artifacts/
         gzip -c "$IMG_NAME" > "$IMG_GZ"
         mv "$IMG_GZ" $GITHUB_WORKSPACE/build_artifacts/
 
@@ -178,14 +181,14 @@ jobs:
         git push origin ${{ env.RELEASE_TAG }}
 
     # ================================================================
-    # 8. Create GitHub Release & upload firmware (both .img and .img.gz)
+    # 8. Create GitHub Release & upload firmware
     # ================================================================
     - name: Create GitHub Release and upload firmware
       if: env.CHECK_BUILD_RESULT != 'true'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ env.RELEASE_TAG }}
-        name: "OpenWrt x86_64 hybrid combined-ext4 1500MB ${{ env.LATEST }} Build #${{ github.run_number }}"
+        name: "OpenWrt x86_64 hybrid combined-ext4 150MB ${{ env.LATEST }} Build #${{ github.run_number }}"
         files: |
           build_artifacts/openwrt-x86-64-combined-ext4.img
           build_artifacts/openwrt-x86-64-combined-ext4.img.gz
