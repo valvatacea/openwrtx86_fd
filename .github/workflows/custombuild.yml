@@ -113,9 +113,13 @@ jobs:
     - name: Mount RootFS & Add Network Config
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
+        # Setup loop device & mount read-write
         LOOP=$(sudo losetup -f --show -P openwrt-x86-64-combined-ext4.img)
-        mkdir -p /tmp/rootfs
-        sudo mount "${LOOP}p2" /tmp/rootfs
+        echo "DEBUG: Checking filesystem on ${LOOP}p2 ..."
+        sudo e2fsck -fy "${LOOP}p2" || true
+        echo "DEBUG: Mounting rootfs read-write ..."
+        sudo mount -o rw "${LOOP}p2" /tmp/rootfs
+        
         sudo mkdir -p /tmp/rootfs/etc/config
         echo "DEBUG: Top-level rootfs directories:"
         sudo find /tmp/rootfs -maxdepth 1 -type d | sed 's/^/ - /'
@@ -133,25 +137,15 @@ jobs:
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
         LOOP=$(sudo losetup -f --show -P openwrt-x86-64-combined-ext4.img)
-        sudo mount "${LOOP}p2" /tmp/rootfs
         sudo mkdir -p /tmp/rootfs/var/lock
         echo "DEBUG: Removing dnsmasq package from rootfs"
         sudo chroot /tmp/rootfs opkg remove dnsmasq || true
-        sudo umount /tmp/rootfs
-        sudo losetup -d "${LOOP}"
 
     # ============================================================
     # 10. Install OpenWrt Packages Offline (Fixed)
     - name: Install OpenWrt Packages Offline
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
-        # Setup loop device & mount read-write
-        LOOP=$(sudo losetup -f --show -P openwrt-x86-64-combined-ext4.img)
-        echo "DEBUG: Checking filesystem on ${LOOP}p2 ..."
-        sudo e2fsck -fy "${LOOP}p2" || true
-        echo "DEBUG: Mounting rootfs read-write ..."
-        sudo mount -o rw "${LOOP}p2" /tmp/rootfs
-    
         # Buat direktori untuk IPK
         sudo mkdir -p /tmp/rootfs/tmp/ipk
     
