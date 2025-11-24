@@ -141,22 +141,46 @@ jobs:
         sudo losetup -d "${LOOP}"
 
     # ============================================================
-    # 10. Install OpenWrt Packages Offline
+    # 10. Install OpenWrt Packages Offline (Fixed)
     - name: Install OpenWrt Packages Offline
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
+        # Setup loop device & mount read-write
+        LOOP=$(sudo losetup -f --show -P openwrt-x86-64-combined-ext4.img)
+        echo "DEBUG: Checking filesystem on ${LOOP}p2 ..."
+        sudo e2fsck -fy "${LOOP}p2" || true
+        echo "DEBUG: Mounting rootfs read-write ..."
+        sudo mount -o rw "${LOOP}p2" /tmp/rootfs
+    
+        # Buat direktori untuk IPK
         sudo mkdir -p /tmp/rootfs/tmp/ipk
+    
+        # Daftar paket OpenWrt
         OPENWRT_PKGS=(dnsmasq-full luci luci-base luci-compat bash curl ca-bundle ipset ip-full ruby ruby-yaml unzip iptables kmod-ipt-nat iptables-mod-tproxy iptables-mod-extra kmod-tun ip6tables-mod-nat kmod-inet-diag kmod-nft-tproxy kmod-usb-net-rndis kmod-usb-net-rtl8xxxu block-mount lsblk)
         URL="https://downloads.openwrt.org/releases/${{ env.LATEST }}/packages/x86_64/base/"
+    
+        # Download paket terbaru menggunakan curl & wget
         for PKG in "${OPENWRT_PKGS[@]}"; do
-          # ambil nama file IPK terbaru dari HTML listing
           FNAME=$(curl -s "$URL" | grep -Po "${PKG}_[0-9]+\.[0-9]+.*_x86_64\.ipk" | head -1)
-          FNAME=${FNAME%%\"*}  # hapus sisa karakter HTML jika ada
-          echo "Downloading $FNAME ..."
-          wget -q -P /tmp/rootfs/tmp/ipk "${URL}${FNAME}" || true
+          FNAME=${FNAME%%\"*}  # hapus karakter tambahan
+          if [ -n "$FNAME" ]; then
+            echo "Downloading $FNAME ..."
+            wget -q -P /tmp/rootfs/tmp/ipk "${URL}${FNAME}" || true
+          else
+            echo "WARNING: Paket $PKG tidak ditemukan!"
+          fi
         done
+    
+        # Pastikan var/lock ada
         sudo mkdir -p /tmp/rootfs/var/lock
+    
+        # Install semua paket
+        echo "DEBUG: Installing downloaded IPKs ..."
         sudo chroot /tmp/rootfs opkg install /tmp/ipk/*.ipk || true
+    
+        # Cleanup
+        sudo umount /tmp/rootfs
+        sudo losetup -d "${LOOP}"
         
     # ============================================================
     # 11b. Install GitHub IPK Offline (OpenClash & Theme)
