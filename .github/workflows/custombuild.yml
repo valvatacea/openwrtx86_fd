@@ -82,6 +82,13 @@ jobs:
 
         sudo qemu-img resize -f raw "$IMG_NAME" $TARGET_SIZE
 
+        # =========================
+        # DEBUG UKURAN FILE SETELAH RESIZE
+        # =========================
+        echo "DEBUG: Image size setelah resize"
+        ls -lh "$IMG_NAME"
+        sudo fdisk -l "$IMG_NAME"
+
         echo "DEBUG: Mount loop device"
         LOOP=$(sudo losetup -f --show -P "$IMG_NAME")
         sudo parted "${LOOP}" -s resizepart 2 100%
