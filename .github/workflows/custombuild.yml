@@ -6,60 +6,49 @@ permissions:
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 3 * * *"  # Build otomatis jam 03:00 UTC tiap hari
+    - cron: "0 3 * * *"
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # Timeout 6 jam
+    timeout-minutes: 360
 
     env:
-      GH_PAT: ${{ secrets.GH_PAT }}  # Token GitHub untuk upload release
+      GH_PAT: ${{ secrets.GH_PAT }}
 
     steps:
     # ============================================================
     # 1. CLONE REPOSITORY
-    # ============================================================
     - name: Checkout repository
       uses: actions/checkout@v4
 
     # ============================================================
     # 2. AMBIL VERSI OPENWRT PALING BARU
-    # ============================================================
     - name: Get latest OpenWrt version
       id: get_version
       run: |
-        # Ambil list folder versi → pakai regex angka angka angka
         LATEST=$(curl -s https://downloads.openwrt.org/releases/ | grep -Po '([0-9]{2}\.[0-9]{2}\.[0-9]{1,2})/' | sort -V | tail -1 | tr -d '/')
-
         echo "LATEST=$LATEST" >> $GITHUB_ENV
         echo "Latest OpenWrt version: $LATEST"
 
     # ============================================================
     # 3. CEK APA SUDAH ADA RELEASE VERSI INI?
-    # ============================================================
     - name: Check if OpenWrt version already built
       id: check_build
       uses: actions/github-script@v6
       with:
         script: |
           const version = (process.env.LATEST || "").trim();
-
           const releases = await github.rest.repos.listReleases({
             owner: context.repo.owner,
             repo: context.repo.repo,
             per_page: 100
           });
-
           const exists = releases.data.some(r => r.tag_name.includes(version));
-
-          require('fs').appendFileSync(process.env.GITHUB_ENV,
-            `CHECK_BUILD_RESULT=${exists ? "true" : "false"}\n`
-          );
+          require('fs').appendFileSync(process.env.GITHUB_ENV, `CHECK_BUILD_RESULT=${exists ? "true" : "false"}\n`);
 
     # ============================================================
     # 4. INSTALL DEPENDENCIES
-    # ============================================================
     - name: Install dependencies
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
@@ -71,65 +60,34 @@ jobs:
           bzip2 lzma binfmt-support qemu-user-static
 
     # ============================================================
-    # 5. DOWNLOAD IMAGE + RESIZE + INJECT CONFIG + IPK ARRAY
-    # ============================================================
-    - name: Download + Modify + Resize Partition
+    # 5. DOWNLOAD IMAGE + RESIZE + INJECT CONFIG + PAKET
+    - name: Download + Modify + Resize Partition + Install Packages
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
         set -euxo pipefail
         cd $GITHUB_WORKSPACE
-
         LATEST=${{ env.LATEST }}
-
-        # ============
-        # URL IMAGE
-        # ============
         IMG_URL="https://downloads.openwrt.org/releases/${LATEST}/targets/x86/generic/openwrt-${LATEST}-x86-generic-generic-ext4-combined.img.gz"
         IMG_NAME="openwrt-x86-64-combined-ext4.img"
         IMG_GZ="${IMG_NAME}.gz"
-        TARGET_SIZE="1800M"
+        TARGET_SIZE="1500M"
 
-        # ============
-        # DOWNLOAD DAN EXTRACT
-        # ============
         wget -q --show-progress "$IMG_URL" -O "$IMG_GZ"
         gunzip -f "$IMG_GZ" || true
-
-        # ============
-        # RESIZE RAW IMAGE
-        # ============
         sudo qemu-img resize -f raw "$IMG_NAME" $TARGET_SIZE
 
-        # Attach image → dapat loopNp1, loopNp2
         LOOP=$(sudo losetup -f --show -P "$IMG_NAME")
-
-        echo "Before resize:"
-        sudo lsblk "${LOOP}"
-
-        # Resize partisi root (p2)
-        sudo parted "${LOOP}" -s resizepart 2 100% || {
-          sudo partprobe "${LOOP}" || true
-          sudo parted "${LOOP}" -s resizepart 2 100%
-        }
-
+        sudo parted "${LOOP}" -s resizepart 2 100%
         sudo partprobe "${LOOP}" || true
         sleep 1
-
-        # ============
-        # RESIZE EXT4
-        # ============
         sudo e2fsck -fy "${LOOP}p2" || true
         sudo resize2fs "${LOOP}p2"
 
-        # Mount rootfs
         mkdir -p /tmp/rootfs
         sudo mount "${LOOP}p2" /tmp/rootfs
+        sudo mkdir -p /tmp/rootfs/etc/config
 
-        sudo mkdir -p /tmp/rootfs/tmp/ipk /tmp/rootfs/etc/config
-
-        # ============
         # NETWORK CONFIG
-        # ============
         cat | sudo tee /tmp/rootfs/etc/config/network <<'EOF'
         config interface 'lan'
             option device 'eth0'
@@ -138,35 +96,65 @@ jobs:
             option netmask '255.255.255.0'
         EOF
 
-        # ============
-        # ARRAY IPK
-        # ============
-        IPK_LIST=(
-          "https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk"
-          "https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk"
+        # =====================
+        # INSTALL PAKET BAWAAN OPENWRT LANGSUNG
+        # =====================
+        TARGET_ROOT=/tmp/rootfs
+        sudo mount --bind /proc $TARGET_ROOT/proc
+        sudo mount --bind /sys $TARGET_ROOT/sys
+        sudo mount --bind /dev $TARGET_ROOT/dev
+
+        OPENWRT_PKGS=(
+          luci
+          luci-base
+          luci-compat
+          dnsmasq-full
+          bash
+          curl
+          ca-bundle
+          ipset
+          ip-full
+          ruby
+          ruby-yaml
+          unzip
+          iptables
+          kmod-ipt-nat
+          iptables-mod-tproxy
+          iptables-mod-extra
+          kmod-tun
+          ip6tables-mod-nat
+          kmod-inet-diag
+          kmod-nft-tproxy
+          kmod-usb-net-rndis
+          kmod-usb-net-rtl8xxxu
+          block-mount
         )
 
-        # DOWNLOAD SEMUA IPK SEBAGAI LOOP
-        for url in "${IPK_LIST[@]}"; do
+        for pkg in "${OPENWRT_PKGS[@]}"; do
+          echo "Installing $pkg..."
+          sudo chroot $TARGET_ROOT /bin/sh -c "opkg update && opkg install $pkg || true"
+        done
+
+        # =====================
+        # OpenClash & Alpha theme langsung install
+        # =====================
+        GITHUB_IPK_LIST=(
+          "https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk"
+          "https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk"
+        )
+        for url in "${GITHUB_IPK_LIST[@]}"; do
           fname=$(basename "$url")
-          echo "Downloading IPK → $fname"
-          sudo wget -O "/tmp/rootfs/tmp/ipk/$fname" "$url" || true
+          echo "Downloading GitHub IPK → $fname"
+          sudo wget -O "$TARGET_ROOT/tmp/$fname" "$url" || true
+          sudo chroot $TARGET_ROOT /bin/sh -c "opkg install /tmp/$fname || true"
         done
 
-        # ============
-        # AUTO-INSTALL IPK SAAT FIRST BOOT
-        # ============
-        cat | sudo tee /tmp/rootfs/etc/uci-defaults/99-install-ipk <<'EOF'
-        #!/bin/sh
-        for f in /tmp/ipk/*.ipk; do
-            [ -f "$f" ] && opkg install "$f"
-        done
-        EOF
-        sudo chmod +x /tmp/rootfs/etc/uci-defaults/99-install-ipk
+        sudo umount $TARGET_ROOT/proc
+        sudo umount $TARGET_ROOT/sys
+        sudo umount $TARGET_ROOT/dev
 
-        # Unmount + detach
         sync
-        sudo umount /tmp/rootfs
+        sudo umount $TARGET_ROOT
         sudo losetup -d "${LOOP}"
 
         mkdir -p build_artifacts
@@ -175,14 +163,12 @@ jobs:
 
     # ============================================================
     # 6. BUAT TAG RELEASE
-    # ============================================================
     - name: Generate release tag
       if: env.CHECK_BUILD_RESULT != 'true'
       run: echo "RELEASE_TAG=v${{ env.LATEST }}-$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
 
     # ============================================================
     # 7. PUSH GIT TAG
-    # ============================================================
     - name: Create and push git tag
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
@@ -193,7 +179,6 @@ jobs:
 
     # ============================================================
     # 8. UPLOAD KE RELEASE
-    # ============================================================
     - name: Upload firmware
       if: env.CHECK_BUILD_RESULT != 'true'
       uses: softprops/action-gh-release@v1
