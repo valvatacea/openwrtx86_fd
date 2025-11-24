@@ -150,6 +150,7 @@ jobs:
           "https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk"
         )
         sudo mkdir -p /tmp/rootfs/tmp
+        sudo mkdir -p /tmp/rootfs/var/lock
         for url in "${GITHUB_IPK_LIST[@]}"; do
           fname=$(basename "$url")
           wget -q -O "/tmp/rootfs/tmp/$fname" "$url" || true
