@@ -156,6 +156,7 @@ jobs:
         sudo mkdir -p /tmp/rootfs/var/lock
         for url in "${GITHUB_IPK_LIST[@]}"; do
           fname=$(basename "$url")
+          echo "Downloading $fname ..."
           wget -q -O "/tmp/rootfs/tmp/$fname" "$url" || true
           sudo chroot /tmp/rootfs opkg install /tmp/$fname || true
         done
