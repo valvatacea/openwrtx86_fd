@@ -137,6 +137,7 @@ jobs:
         for PKG in "${OPENWRT_PKGS[@]}"; do
           wget -q -P /tmp/rootfs/tmp/ipk "https://downloads.openwrt.org/releases/${{ env.LATEST }}/packages/x86_64/base/${PKG}_*.ipk" || true
         done
+        sudo mkdir -p /tmp/rootfs/var/lock
         sudo chroot /tmp/rootfs opkg install /tmp/ipk/*.ipk || true
 
     # ============================================================
