@@ -11,10 +11,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 240  # Maks waktu build 4 jam
+    timeout-minutes: 240
 
     env:
-      GH_PAT: ${{ secrets.GH_PAT }}  # Token GitHub untuk push release
+      GH_PAT: ${{ secrets.GH_PAT }}
 
     steps:
     # ================================================================
@@ -34,29 +34,32 @@ jobs:
         echo "Latest OpenWrt version: $LATEST"
 
     # ================================================================
-    # 3. Check if already built
+    # 3. Check if version already built (hanya cocok versi OpenWrt)
     # ================================================================
     - name: Check if OpenWrt version already built
       id: check_build
       uses: actions/github-script@v6
       with:
         script: |
-          const version = (process.env.LATEST || "").trim(); // versi OpenWrt, misal "24.10.4"
+          const version = (process.env.LATEST || "").trim();
           const releases = await github.rest.repos.listReleases({
             owner: context.repo.owner,
             repo: context.repo.repo,
             per_page: 100
           });
-    
-          // hanya cocokkan bagian versi OpenWrt di tag_name
-          const exists = releases.data.some(r =>
-            r.tag_name.includes(version)
-          );
-    
+
+          const exists = releases.data.some(r => r.tag_name.includes(version));
+
           console.log("OpenWrt version already built?", exists);
           core.setOutput("result", exists ? "true" : "false");
       env:
         LATEST: ${{ env.LATEST }}
+
+    # ================================================================
+    # Debug output check_build
+    # ================================================================
+    - name: Debug check_build
+      run: echo "check_build result: ${{ steps.check_build.outputs.result }}"
 
     # ================================================================
     # 4. Install dependencies
@@ -90,7 +93,6 @@ jobs:
       if: steps.check_build.outputs.result != 'true'
       run: |
         mkdir -p imagebuilder/files/etc/config imagebuilder/files/etc/init.d imagebuilder/files/etc/uci-defaults imagebuilder/files/tmp/ipk
-        # network config
         cat > imagebuilder/files/etc/config/network <<'EOF'
         config interface 'loopback'
             option device 'lo'
@@ -160,29 +162,22 @@ jobs:
           kmod-usb-net-cdc-ncm kmod-usb-net-ipheth \
           parted fdisk lsblk e2fsprogs resize2fs)
         PKG_STR=$(printf "%s " "${PACKAGES[@]}")
-        echo "Building firmware with packages: $PKG_STR"
         make image PROFILE="generic" FILES="files" PACKAGES="$PKG_STR"
 
     # ================================================================
-    # 9. Modular Step: Create OpenWrt combined-ext4 image (bootable)
+    # 9. Build combined-ext4 OpenWrt image (bootable)
     # ================================================================
     - name: Build combined-ext4 OpenWrt image (modular)
       if: steps.check_build.outputs.result != 'true'
       run: |
         set -euxo pipefail
-
         cd imagebuilder/bin/targets/x86/64
-
         IMG_NAME="openwrt-x86-64-combined-ext4.img"
         IMG_GZ="${IMG_NAME}.gz"
         IMG_SIZE="1500M"
         ROOTFS_TAR=$(ls *-rootfs.tar.gz | head -n1)
         KERNEL=$(ls *-vmlinuz *-vmlinuz.bin 2>/dev/null | head -n1)
         LOOP=""
-
-        echo "RootFS: $ROOTFS_TAR"
-        echo "Kernel: $KERNEL"
-        echo "Image: $IMG_NAME"
 
         mkdir -p /tmp/rootfs
         function cleanup() {
@@ -204,7 +199,6 @@ jobs:
         sudo mkfs.ext4 -F "$LOOP"
         sudo mount "$LOOP" /tmp/rootfs
         sudo tar -xzf "$ROOTFS_TAR" -C /tmp/rootfs
-
         if [ -n "$KERNEL" ] && [ -f "$KERNEL" ]; then
           sudo cp "$KERNEL" /tmp/rootfs/vmlinuz
         fi
@@ -212,12 +206,10 @@ jobs:
         sync
         sudo umount /tmp/rootfs
         sudo losetup -d "$LOOP"
-        LOOP=""
 
         gzip -c "$IMG_NAME" > "$IMG_GZ"
         mkdir -p $GITHUB_WORKSPACE/build_artifacts
         mv "$IMG_NAME" "$IMG_GZ" $GITHUB_WORKSPACE/build_artifacts/
-        echo "✅ Combined-ext4 OpenWrt image created successfully!"
 
     # ================================================================
     # 10. Generate release tag
