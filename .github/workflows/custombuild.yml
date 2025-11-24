@@ -72,7 +72,7 @@ jobs:
     # ================================================================
     # 5. Hybrid build: Resize official combined-ext4 image
     # ================================================================
-    - name: Hybrid: Resize combined-ext4 image and add custom files/IPK
+    - name: Hybrid Resize combined-ext4 image and add custom files/IPK
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
         set -euxo pipefail
