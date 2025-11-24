@@ -49,6 +49,7 @@ jobs:
           });
           const exists = releases.data.some(r => r.tag_name.includes(version));
           console.log("OpenWrt version already built?", exists);
+          const core = require('@actions/core');
           core.setOutput("result", exists ? "true" : "false");
 
     # ================================================================
