@@ -76,7 +76,7 @@ jobs:
         IMG_URL="https://downloads.openwrt.org/releases/${LATEST}/targets/x86/generic/openwrt-${LATEST}-x86-generic-generic-ext4-combined.img.gz"
         IMG_NAME="openwrt-x86-64-combined-ext4.img"
         IMG_GZ="${IMG_NAME}.gz"
-        TARGET_SIZE="200M"
+        TARGET_SIZE="150M"
 
         # Download and decompress official image
         wget -q --show-progress "$IMG_URL" -O "$IMG_GZ"
@@ -150,6 +150,14 @@ jobs:
           https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk || true
         sudo wget -O /tmp/rootfs/tmp/ipk/luci-app-openclash.ipk \
           https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk || true
+
+        # ================================================================
+        # 5b. Hitung ukuran rootfs
+        # ================================================================
+        ROOT_SIZE=$(sudo blockdev --getsize64 "${LOOP}p1")
+        ROOT_SIZE_MB=$((ROOT_SIZE / 1024 / 1024))
+        echo "Root partition size: ${ROOT_SIZE_MB} MB"
+        echo "ROOT_SIZE_MB=${ROOT_SIZE_MB}" >> $GITHUB_ENV
 
         # Sync and unmount
         sync
