@@ -100,46 +100,46 @@ jobs:
         sudo mkdir -p /tmp/rootfs/etc/config /tmp/rootfs/etc/init.d /tmp/rootfs/etc/uci-defaults /tmp/rootfs/tmp/ipk
 
         cat | sudo tee /tmp/rootfs/etc/config/network <<'EOF'
-config interface 'loopback'
-    option device 'lo'
-    option proto 'static'
-    option ipaddr '127.0.0.1'
-    option netmask '255.0.0.0'
-config interface 'lan'
-    option device 'eth0'
-    option proto 'static'
-    option ipaddr '192.168.1.2'
-    option netmask '255.255.255.0'
-config interface 'usb0'
-    option proto 'dhcp'
-EOF
+        config interface 'loopback'
+            option device 'lo'
+            option proto 'static'
+            option ipaddr '127.0.0.1'
+            option netmask '255.0.0.0'
+        config interface 'lan'
+            option device 'eth0'
+            option proto 'static'
+            option ipaddr '192.168.1.2'
+            option netmask '255.255.255.0'
+        config interface 'usb0'
+            option proto 'dhcp'
+        EOF
 
         cat | sudo tee /tmp/rootfs/etc/init.d/resize-rootfs <<'EOF'
-#!/bin/sh /etc/rc.common
-START=99
-start() {
-    [ -f /etc/.rootfs_resized ] && exit 0
-    ROOTDEV=$(mount | grep " on / " | awk '{print $1}')
-    PARTBASE=$(echo $ROOTDEV | sed 's/[0-9]*$//')
-    PARTNUM=$(echo $ROOTDEV | grep -o '[0-9]*$')
-    if command -v growpart >/dev/null 2>&1; then
-        growpart $PARTBASE $PARTNUM || true
-    fi
-    resize2fs $ROOTDEV || true
-    touch /etc/.rootfs_resized
-}
-EOF
+        #!/bin/sh /etc/rc.common
+        START=99
+        start() {
+            [ -f /etc/.rootfs_resized ] && exit 0
+            ROOTDEV=$(mount | grep " on / " | awk '{print $1}')
+            PARTBASE=$(echo $ROOTDEV | sed 's/[0-9]*$//')
+            PARTNUM=$(echo $ROOTDEV | grep -o '[0-9]*$')
+            if command -v growpart >/dev/null 2>&1; then
+                growpart $PARTBASE $PARTNUM || true
+            fi
+            resize2fs $ROOTDEV || true
+            touch /etc/.rootfs_resized
+        }
+        EOF
         sudo chmod +x /tmp/rootfs/etc/init.d/resize-rootfs
 
         cat | sudo tee /tmp/rootfs/etc/uci-defaults/99-install-ipk <<'EOF'
-#!/bin/sh
-IPK_DIR="/tmp/ipk"
-if [ -d "$IPK_DIR" ]; then
-  for f in "$IPK_DIR"/*.ipk; do
-    [ -f "$f" ] && opkg install "$f"
-  done
-fi
-EOF
+        #!/bin/sh
+        IPK_DIR="/tmp/ipk"
+        if [ -d "$IPK_DIR" ]; then
+          for f in "$IPK_DIR"/*.ipk; do
+            [ -f "$f" ] && opkg install "$f"
+          done
+        fi
+        EOF
         sudo chmod +x /tmp/rootfs/etc/uci-defaults/99-install-ipk
 
         # Download sample IPKs
