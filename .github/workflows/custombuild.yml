@@ -135,7 +135,7 @@ jobs:
             option proto 'static'
             option ipaddr '192.168.1.2'
             option netmask '255.255.255.0'
-EOF
+        EOF
 
     # ============================================================
     # 10. Install OpenWrt Packages Offline
