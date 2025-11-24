@@ -24,7 +24,7 @@ jobs:
       uses: actions/checkout@v4
 
     # ================================================================
-    # 2. Ambil versi OpenWrt terbaru
+    # 2. Get latest OpenWrt version
     # ================================================================
     - name: Get latest OpenWrt version
       id: get_version
@@ -34,7 +34,7 @@ jobs:
         echo "Latest OpenWrt version: $LATEST"
 
     # ================================================================
-    # 3. Check if OpenWrt version already built (hanya cocok versi OpenWrt)
+    # 3. Check if OpenWrt version already built
     # ================================================================
     - name: Check if OpenWrt version already built
       id: check_build
@@ -47,39 +47,42 @@ jobs:
             repo: context.repo.repo,
             per_page: 100
           });
-
           const exists = releases.data.some(r => r.tag_name.includes(version));
           console.log("OpenWrt version already built?", exists);
-
-          // Perbaikan: gunakan return untuk set output
-          return { result: exists ? "true" : "false" };
-      env:
-        LATEST: ${{ env.LATEST }}
+          core.setOutput("result", exists ? "true" : "false");
 
     # ================================================================
     # 3b. Debug output check_build
     # ================================================================
     - name: Debug check_build
       run: |
-        echo "check_build result: ${{ steps.check_build.result }}"
+        echo "check_build result: ${{ steps.check_build.outputs.result }}"
 
     # ================================================================
     # 4. Install dependencies
     # ================================================================
     - name: Install dependencies
-      if: steps.check_build.result != 'true'
+      if: steps.check_build.outputs.result != 'true'
       run: |
         sudo apt-get update
         sudo apt-get install -y wget zstd xz-utils squashfs-tools \
           qemu-utils dosfstools e2fsprogs parted rsync unzip file \
           build-essential gawk python3 curl git cloud-guest-utils \
-          util-linux syslinux syslinux-utils mtools extlinux grub-pc-bin
+          util-linux syslinux syslinux-utils mtools extlinux grub-pc-bin \
+          bzip2 lzma binfmt-support qemu-user-static
 
     # ================================================================
-    # 5. Download ImageBuilder
+    # 5. Cache & Download ImageBuilder
     # ================================================================
+    - name: Cache ImageBuilder
+      if: steps.check_build.outputs.result != 'true'
+      uses: actions/cache@v3
+      with:
+        path: imagebuilder
+        key: imagebuilder-${{ env.LATEST }}
+
     - name: Download ImageBuilder
-      if: steps.check_build.result != 'true'
+      if: steps.check_build.outputs.result != 'true' && steps.cache-hit != 'true'
       run: |
         set -e
         URL="https://downloads.openwrt.org/releases/${LATEST}/targets/x86/64/openwrt-imagebuilder-${LATEST}-x86-64.Linux-x86_64.tar.zst"
@@ -92,9 +95,10 @@ jobs:
     # 6. Add custom files
     # ================================================================
     - name: Add custom files
-      if: steps.check_build.result != 'true'
+      if: steps.check_build.outputs.result != 'true'
       run: |
         mkdir -p imagebuilder/files/etc/config imagebuilder/files/etc/init.d imagebuilder/files/etc/uci-defaults imagebuilder/files/tmp/ipk
+        # network config
         cat > imagebuilder/files/etc/config/network <<'EOF'
         config interface 'loopback'
             option device 'lo'
@@ -109,7 +113,7 @@ jobs:
         config interface 'usb0'
             option proto 'dhcp'
         EOF
-
+        # resize-rootfs
         cat > imagebuilder/files/etc/init.d/resize-rootfs <<'EOF'
         #!/bin/sh /etc/rc.common
         START=99
@@ -126,7 +130,7 @@ jobs:
         }
         EOF
         chmod +x imagebuilder/files/etc/init.d/resize-rootfs
-
+        # install IPK default
         cat > imagebuilder/files/etc/uci-defaults/99-install-ipk <<'EOF'
         #!/bin/sh
         IPK_DIR="/tmp/ipk"
@@ -139,10 +143,10 @@ jobs:
         chmod +x imagebuilder/files/etc/uci-defaults/99-install-ipk
 
     # ================================================================
-    # 7. Download IPK eksternal
+    # 7. Download external IPK files with checksum
     # ================================================================
     - name: Download IPK files
-      if: steps.check_build.result != 'true'
+      if: steps.check_build.outputs.result != 'true'
       run: |
         wget -O imagebuilder/files/tmp/ipk/luci-theme-alpha4.ipk \
           https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk || true
@@ -153,7 +157,7 @@ jobs:
     # 8. Build firmware
     # ================================================================
     - name: Build firmware
-      if: steps.check_build.result != 'true'
+      if: steps.check_build.outputs.result != 'true'
       run: |
         cd imagebuilder
         PACKAGES=(luci luci-base bash curl ca-bundle ipset ip-full ruby ruby-yaml unzip \
@@ -168,7 +172,7 @@ jobs:
     # 9. Build combined-ext4 OpenWrt image
     # ================================================================
     - name: Build combined-ext4 OpenWrt image
-      if: steps.check_build.result != 'true'
+      if: steps.check_build.outputs.result != 'true'
       run: |
         set -euxo pipefail
         cd imagebuilder/bin/targets/x86/64
@@ -177,8 +181,11 @@ jobs:
         IMG_SIZE="1500M"
         ROOTFS_TAR=$(ls *-rootfs.tar.gz | head -n1)
         KERNEL=$(ls *-vmlinuz *-vmlinuz.bin 2>/dev/null | head -n1)
-        LOOP=""
 
+        [ -z "$ROOTFS_TAR" ] && echo "ERROR: rootfs tar not found" && exit 1
+        [ -z "$KERNEL" ] && echo "WARNING: kernel not found"
+
+        LOOP=""
         mkdir -p /tmp/rootfs
         function cleanup() {
           set +e
@@ -191,10 +198,6 @@ jobs:
 
         fallocate -l $IMG_SIZE "$IMG_NAME"
         LOOP=$(sudo losetup -f --show "$IMG_NAME")
-
-        if command -v syslinux >/dev/null 2>&1; then
-          dd if=/usr/lib/syslinux/mbr/mbr.bin of="$LOOP" bs=440 count=1 conv=notrunc
-        fi
 
         sudo mkfs.ext4 -F "$LOOP"
         sudo mount "$LOOP" /tmp/rootfs
@@ -213,14 +216,14 @@ jobs:
     # 10. Generate release tag
     # ================================================================
     - name: Generate release tag
-      if: steps.check_build.result != 'true'
+      if: steps.check_build.outputs.result != 'true'
       run: echo "RELEASE_TAG=v${{ env.LATEST }}-$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
 
     # ================================================================
     # 11. Create and push Git tag
     # ================================================================
     - name: Create and push Git tag
-      if: steps.check_build.result != 'true'
+      if: steps.check_build.outputs.result != 'true'
       run: |
         git config user.name "github-actions"
         git config user.email "github-actions@github.com"
@@ -231,13 +234,13 @@ jobs:
     # 12. Create GitHub Release & upload firmware
     # ================================================================
     - name: Create GitHub Release and upload firmware
-      if: steps.check_build.result != 'true'
+      if: steps.check_build.outputs.result != 'true'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ env.RELEASE_TAG }}
         name: "OpenWrt x86_64 combined-ext4 1500M ${{ env.LATEST }} Build #${{ github.run_number }}"
         files: |
-          build_artifacts/openwrt-x86-64-combined-ext4.img.gz
+          build_artifacts/*.img.gz
           imagebuilder/bin/targets/x86/64/*-rootfs.tar.gz
       env:
         GITHUB_TOKEN: ${{ secrets.GH_PAT }}
