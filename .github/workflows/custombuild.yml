@@ -197,7 +197,7 @@ jobs:
         
         # Array link IPK (akan di-download DALAM chroot)
         IPK_LINKS=(
-            "http://downloads.openwrt.org/releases/24.10.4/packages/x86_64/base/somepackage_1.0.0_x86_64.ipk"
+            "https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk"
             "https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk"
         )
     
