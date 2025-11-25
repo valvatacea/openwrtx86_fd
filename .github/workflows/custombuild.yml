@@ -176,6 +176,12 @@ jobs:
             option ipaddr '192.168.1.2'
             option netmask '255.255.255.0'
         EOF
+        
+        cat | sudo tee /tmp/rootfs/etc/config/dhcp <<'EOF'
+        config dhcp 'lan'
+                option interface 'lan'
+                option ignore '1'
+        EOF
 
     # ============================================================
     # 11a. Remove dnsmasq from RootFS
