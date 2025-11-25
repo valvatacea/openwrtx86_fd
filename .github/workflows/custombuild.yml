@@ -231,7 +231,11 @@ jobs:
         # Paket lain (normal install)
         OPENWRT_PKGS=(
             bash curl ca-bundle wget ip-full ruby ruby-yaml kmod-tun kmod-inet-diag unzip kmod-nft-tproxy luci-compat luci luci-base lsblk
+            xserver-xorg xserver-xorg-input-evdev xserver-xorg-video-fbdev
+            lxde-core lxdm xterm
         )
+        
+        opkg update
         
         # Array link IPK (akan di-download DALAM chroot)
         IPK_LINKS=(
