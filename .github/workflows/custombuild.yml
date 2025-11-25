@@ -166,6 +166,10 @@ jobs:
         sudo partprobe "${LOOP}" || true
         sleep 5
         
+        echo "DEBUG Partition table:"
+        sudo parted "$LOOP" -s print
+        lsblk -o NAME,SIZE,TYPE "$LOOP"
+        
         # Double-check partition size
         PART_SIZE=$(sudo blockdev --getsize64 "${LOOP}p2")
         echo "Partition 2 size: $PART_SIZE bytes"
