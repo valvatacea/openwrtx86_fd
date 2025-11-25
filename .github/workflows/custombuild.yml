@@ -194,70 +194,83 @@ jobs:
     - name: Install OpenWrt Packages Offline
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
-        LATEST=${{ env.LATEST }}
-    
-        # Direktori IPK di rootfs
-        sudo mkdir -p /tmp/rootfs/tmp/ipk
-    
-        # Daftar paket OpenWrt yang ingin diinstall
+        #!/usr/bin/env bash
+        set -euo pipefail
+        
+        echo "===== START IPK DOWNLOAD + INSTALL ====="
+        
+        LATEST="${1:-24.10.4}"        # Bisa override via arg
+        ROOTFS_DIR="${2:-/tmp/rootfs}"
+        IPK_DIR="$ROOTFS_DIR/tmp/ipk"
+        
+        # Subfolder repositori OpenWrt
+        SUBDIRS=("base" "packages" "luci" "kernel")
+        
+        # Paket OpenWrt yang ingin diinstall
         OPENWRT_PKGS=(
-          dnsmasq-full luci luci-base luci-compat bash curl ca-bundle ipset ip-full 
-          ruby ruby-yaml unzip iptables kmod-ipt-nat iptables-mod-tproxy iptables-mod-extra 
-          kmod-tun ip6tables-mod-nat kmod-inet-diag kmod-nft-tproxy kmod-usb-net-rndis 
+          dnsmasq-full luci luci-base luci-compat bash curl ca-bundle ipset ip-full
+          ruby ruby-yaml unzip iptables kmod-ipt-nat iptables-mod-tproxy iptables-mod-extra
+          kmod-tun ip6tables-mod-nat kmod-inet-diag kmod-nft-tproxy kmod-usb-net-rndis
           kmod-usb-net-rtl8xxxu block-mount lsblk
         )
-    
-        # Subfolder repositori yang akan dicari
-        SUBDIRS=("base" "packages" "luci" "kernel")
-    
-        # Fallback URL GitHub untuk paket yang tidak ditemukan di repo resmi
+        
+        # Fallback GitHub (tambahkan paket lain jika tersedia)
         declare -A GITHUB_FALLBACK
-        GITHUB_FALLBACK["dnsmasq-full"]="https://github.com/openwrt/packages/releases/download/dnsmasq-full_2.90-r4_x86_64.ipk"
         GITHUB_FALLBACK["ca-bundle"]="https://github.com/openwrt/packages/releases/download/ca-bundle_20231010_all.ipk"
-        # Tambahkan paket lain jika ada di GitHub
-    
+        GITHUB_FALLBACK["dnsmasq-full"]="https://github.com/openwrt/packages/releases/download/dnsmasq-full_2.90-r4_x86_64.ipk"
+        # Tambahkan lebih banyak paket fallback sesuai kebutuhan
+        
+        # Buat direktori IPK
+        mkdir -p "$IPK_DIR" tmp-ipk
+        echo "[DEBUG] Subdirs: ${SUBDIRS[*]}"
+        
+        # Download semua paket
         for PKG in "${OPENWRT_PKGS[@]}"; do
           FOUND=0
-          for DIR in "${SUBDIRS[@]}"; do
-            URL="https://downloads.openwrt.org/releases/${LATEST}/packages/x86_64/$DIR/"
-            FNAME=$(curl -s "$URL" | grep -Po "${PKG}_[0-9a-zA-Z\.\-\+]+_x86_64\.ipk" | head -1)
-            if [ -n "$FNAME" ]; then
-              echo "Downloading $FNAME from $DIR ..."
-              wget -q -P /tmp/rootfs/tmp/ipk "${URL}${FNAME}" || true
-              FOUND=1
-              break
+          echo "-----------------------------------------------------"
+          echo "[INFO] Mencari paket: $PKG"
+        
+          for S in "${SUBDIRS[@]}"; do
+            FILELIST_URL="https://downloads.openwrt.org/releases/$LATEST/packages/x86_64/$S/Packages"
+            if curl -fs "$FILELIST_URL" >/dev/null 2>&1; then
+              PKGFILE=$(curl -fs "$FILELIST_URL" | grep -A5 "^Package: $PKG$" | grep "^Filename:" | awk '{print $2}' || true)
+              if [[ -n "${PKGFILE:-}" ]]; then
+                FILEURL="https://downloads.openwrt.org/releases/$LATEST/packages/x86_64/$S/$PKGFILE"
+                echo "[INFO] Paket ditemukan: $FILEURL"
+                wget -q -P tmp-ipk "$FILEURL" && FOUND=1 && break || echo "[ERROR] Gagal download $PKGFILE"
+              fi
             fi
           done
-    
-          # Jika tidak ditemukan di repo resmi, cek GitHub fallback
-          if [ $FOUND -eq 0 ] && [ ! -z "${GITHUB_FALLBACK[$PKG]}" ]; then
-            URL="${GITHUB_FALLBACK[$PKG]}"
-            echo "Fallback: Downloading $PKG from GitHub ..."
-            wget -q -P /tmp/rootfs/tmp/ipk "$URL" || true
-            FOUND=1
+        
+          # Fallback ke GitHub
+          if [[ $FOUND -eq 0 ]] && [[ -n "${GITHUB_FALLBACK[$PKG]:-}" ]]; then
+            FILEURL="${GITHUB_FALLBACK[$PKG]}"
+            echo "[INFO] Fallback: Downloading $PKG from GitHub $FILEURL"
+            wget -q -P tmp-ipk "$FILEURL" && FOUND=1 || echo "[ERROR] Gagal download $PKG dari GitHub"
           fi
-    
-          if [ $FOUND -eq 0 ]; then
-            echo "WARNING: Paket $PKG tidak ditemukan di repo resmi maupun GitHub, skip."
-          fi
+        
+          [[ $FOUND -eq 0 ]] && echo "[WARN] Paket $PKG tidak ditemukan, skip"
         done
         
-
-        # Debug: Tampilkan isi direktori IPK sebelum install
-        echo "DEBUG: Daftar file IPK di /tmp/rootfs/tmp/ipk"
-        if [ -d /tmp/rootfs/tmp/ipk ]; then
-          ls -lh /tmp/rootfs/tmp/ipk
-        else
-          echo "Direktori /tmp/rootfs/tmp/ipk tidak ada"
+        # Debug: isi direktori IPK
+        echo "[DEBUG] File IPK tmp-ipk:"
+        ls -lh tmp-ipk || true
+        cp tmp-ipk/* "$IPK_DIR" 2>/dev/null || true
+        
+        # Install IPK via chroot
+        echo "===== INSTALL IPK VIA CHROOT ====="
+        if [[ ! -f "$ROOTFS_DIR/bin/opkg" ]]; then
+          echo "[FATAL] opkg tidak ditemukan di rootfs!"
+          exit 1
         fi
-    
-        # Install IPKs yang berhasil di-download
-        if compgen -G "/tmp/rootfs/tmp/ipk/*.ipk" > /dev/null; then
-          echo "DEBUG: Installing downloaded IPKs ..."
-          sudo chroot /tmp/rootfs opkg install /tmp/ipk/*.ipk || true
-        else
-          echo "WARNING: Tidak ada file IPK ditemukan, skip install"
-        fi
+        
+        for PKGFILE in "$IPK_DIR"/*.ipk; do
+          echo "→ Install: $(basename "$PKGFILE")"
+          chroot "$ROOTFS_DIR" /bin/opkg install "/tmp/ipk/$(basename "$PKGFILE")" \
+            || echo "[WARN] Gagal install $(basename "$PKGFILE"), lanjut paket lain."
+        done
+        
+        echo "===== IPK DOWNLOAD + INSTALL SELESAI ====="
         
     # ============================================================
     # 11b. Install GitHub IPK Offline (OpenClash & Theme)
