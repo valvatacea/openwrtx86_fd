@@ -301,7 +301,7 @@ jobs:
     # 13. Generate release tag
     - name: Generate release tag
       if: env.CHECK_BUILD_RESULT != 'true'
-      run: echo "RELEASE_TAG=v${{ env.LATEST }}-$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
+      run: echo "RELEASE_TAG=v${{ env.LATEST }}-$(date +'%Y%m%d-%H%M')val" >> $GITHUB_ENV
 
     # ============================================================
     # 14. Push git tag
