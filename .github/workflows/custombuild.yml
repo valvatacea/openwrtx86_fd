@@ -236,6 +236,19 @@ jobs:
                 option ignore '1'
         EOF
         
+        cat | sudo tee /tmp/rootfs/etc/config/firewall <<'EOF'
+        config zone
+            option name 'lan'
+            list network 'lan'
+            option input 'ACCEPT'
+            option output 'ACCEPT'
+            option forward 'ACCEPT'
+        
+        config forwarding
+            option src 'lan'
+            option dest 'lan'
+        EOF
+        
         cat | sudo tee /tmp/rootfs/etc/banner <<'EOF'
         '##::::'##::::'###::::'##:::::::'##:::::'##:'########::'########:
          ##:::: ##:::'## ##::: ##::::::: ##:'##: ##: ##.... ##:... ##..::
