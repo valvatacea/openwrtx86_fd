@@ -184,8 +184,8 @@ jobs:
         EOF
     
     # ============================================================
-    # 11. Install OpenWrt Packages Offline (Unified)
-    - name: Install OpenWrt Packages Offline
+    # 11. Install OpenWrt Packages
+    - name: Install OpenWrt Packages
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
         ROOTFS_DIR="/tmp/rootfs"
