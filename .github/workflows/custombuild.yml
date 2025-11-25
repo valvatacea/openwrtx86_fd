@@ -271,6 +271,11 @@ jobs:
         cat $ROOTFS_DIR/etc/os-release
         sudo chroot $ROOTFS_DIR uname -m
 
+        echo "=== Mounting network and system files for chroot ==="
+        sudo mount --bind /etc/resolv.conf "$ROOTFS_DIR/etc/resolv.conf"
+        sudo mount --bind /proc "$ROOTFS_DIR/proc"
+        sudo mount --bind /sys "$ROOTFS_DIR/sys"
+        
         echo "=== Masuk ke chroot: $ROOTFS_DIR ==="
         sudo chroot "$ROOTFS_DIR" /bin/sh -c "
             echo '=== Update daftar paket opkg ==='
@@ -281,6 +286,11 @@ jobs:
         "
         
         echo "=== Selesai install paket ==="
+        
+        echo "=== Optional: unmount /proc, /sys, resolv.conf ==="
+        sudo umount "$ROOTFS_DIR/proc" || true
+        sudo umount "$ROOTFS_DIR/sys" || true
+        sudo umount "$ROOTFS_DIR/etc/resolv.conf" || true
         
         # for PKGFILE in "$IPK_DIR"/*.ipk; do
         #   echo "→ Install: $(basename "$PKGFILE")"
