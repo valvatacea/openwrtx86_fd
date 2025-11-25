@@ -198,7 +198,7 @@ jobs:
         # Array link IPK (akan di-download DALAM chroot)
         IPK_LINKS=(
             "http://downloads.openwrt.org/releases/24.10.4/packages/x86_64/base/somepackage_1.0.0_x86_64.ipk"
-            "http://downloads.openwrt.org/releases/24.10.4/packages/x86_64/base/anotherpackage_2.0.0_x86_64.ipk"
+            "https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk"
         )
     
         echo "=== Persiapan resolv.conf sementara ==="
