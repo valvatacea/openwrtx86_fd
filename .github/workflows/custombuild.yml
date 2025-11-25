@@ -269,7 +269,8 @@ jobs:
           exit 1
         fi
     
-    
+        cat $ROOTFS_DIR/etc/os-release
+        cat $ROOTFS_DIR/etc/opkg/arch
         sudo chroot $ROOTFS_DIR uname -m
         
         for PKGFILE in "$IPK_DIR"/*.ipk; do
