@@ -192,7 +192,7 @@ jobs:
     
         # Paket lain (normal install)
         OPENWRT_PKGS=(
-            bash curl ca-bundle wget ip-full ruby ruby-yaml kmod-tun kmod-inet-diag unzip kmod-nft-tproxy luci-compat luci luci-base
+            bash curl ca-bundle wget ip-full ruby ruby-yaml kmod-tun kmod-inet-diag unzip kmod-nft-tproxy luci-compat luci luci-base lsblk
         )
     
         echo "=== Persiapan resolv.conf sementara ==="
