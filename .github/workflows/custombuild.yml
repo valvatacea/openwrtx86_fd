@@ -190,46 +190,47 @@ jobs:
         sudo chroot /tmp/rootfs opkg remove dnsmasq --force-depends || true
     
     # ============================================================
-    # 10. Install OpenWrt Packages Offline + GitHub Fallback
+    # 11b. Install OpenWrt Packages Offline (Unified)
     - name: Install OpenWrt Packages Offline
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
         #!/usr/bin/env bash
         set -euo pipefail
-        
-        echo "===== START IPK DOWNLOAD + INSTALL ====="
-        
-        LATEST="${1:-24.10.4}"        # Bisa override via arg
-        ROOTFS_DIR="${2:-/tmp/rootfs}"
+    
+        echo "===== START IPK DOWNLOAD + INSTALL (UNIFIED) ====="
+    
+        LATEST="${{ env.LATEST }}"
+        ROOTFS_DIR="/tmp/rootfs"
         IPK_DIR="$ROOTFS_DIR/tmp/ipk"
-        
-        # Subfolder repositori OpenWrt
-        SUBDIRS=("base" "packages" "luci" "kernel")
-        
+        mkdir -p "$IPK_DIR" tmp-ipk
+    
         # Paket OpenWrt yang ingin diinstall
         OPENWRT_PKGS=(
           dnsmasq-full luci luci-base luci-compat bash curl ca-bundle ipset ip-full
           ruby ruby-yaml unzip iptables kmod-ipt-nat iptables-mod-tproxy iptables-mod-extra
           kmod-tun ip6tables-mod-nat kmod-inet-diag kmod-nft-tproxy kmod-usb-net-rndis
           kmod-usb-net-rtl8xxxu block-mount lsblk
+          luci-app-openclash luci-theme-alpha
         )
-        
-        # Fallback GitHub (tambahkan paket lain jika tersedia)
+    
+        # Subfolder repositori OpenWrt
+        SUBDIRS=("base" "packages" "luci" "kernel")
+    
+        # Fallback GitHub untuk paket tertentu
         declare -A GITHUB_FALLBACK
         GITHUB_FALLBACK["ca-bundle"]="https://github.com/openwrt/packages/releases/download/ca-bundle_20231010_all.ipk"
         GITHUB_FALLBACK["dnsmasq-full"]="https://github.com/openwrt/packages/releases/download/dnsmasq-full_2.90-r4_x86_64.ipk"
-        # Tambahkan lebih banyak paket fallback sesuai kebutuhan
-        
-        # Buat direktori IPK
-        mkdir -p "$IPK_DIR" tmp-ipk
+        GITHUB_FALLBACK["luci-app-openclash"]="https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk"
+        GITHUB_FALLBACK["luci-theme-alpha"]="https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk"
+    
         echo "[DEBUG] Subdirs: ${SUBDIRS[*]}"
-        
-        # Download semua paket
+    
         for PKG in "${OPENWRT_PKGS[@]}"; do
           FOUND=0
           echo "-----------------------------------------------------"
           echo "[INFO] Mencari paket: $PKG"
-        
+    
+          # Cari di repositori resmi
           for S in "${SUBDIRS[@]}"; do
             FILELIST_URL="https://downloads.openwrt.org/releases/$LATEST/packages/x86_64/$S/Packages"
             if curl -fs "$FILELIST_URL" >/dev/null 2>&1; then
@@ -241,54 +242,36 @@ jobs:
               fi
             fi
           done
-        
-          # Fallback ke GitHub
+    
+          # Fallback ke GitHub jika tidak ditemukan
           if [[ $FOUND -eq 0 ]] && [[ -n "${GITHUB_FALLBACK[$PKG]:-}" ]]; then
             FILEURL="${GITHUB_FALLBACK[$PKG]}"
             echo "[INFO] Fallback: Downloading $PKG from GitHub $FILEURL"
             wget -q -P tmp-ipk "$FILEURL" && FOUND=1 || echo "[ERROR] Gagal download $PKG dari GitHub"
           fi
-        
+    
           [[ $FOUND -eq 0 ]] && echo "[WARN] Paket $PKG tidak ditemukan, skip"
         done
-        
+    
         # Debug: isi direktori IPK
         echo "[DEBUG] File IPK tmp-ipk:"
         ls -lh tmp-ipk || true
         cp tmp-ipk/* "$IPK_DIR" 2>/dev/null || true
-        
-        # Install IPK via chroot
+    
+        # Install semua paket via chroot
         echo "===== INSTALL IPK VIA CHROOT ====="
         if [[ ! -f "$ROOTFS_DIR/bin/opkg" ]]; then
           echo "[FATAL] opkg tidak ditemukan di rootfs!"
           exit 1
         fi
-        
+    
         for PKGFILE in "$IPK_DIR"/*.ipk; do
           echo "→ Install: $(basename "$PKGFILE")"
           chroot "$ROOTFS_DIR" /bin/opkg install "/tmp/ipk/$(basename "$PKGFILE")" \
             || echo "[WARN] Gagal install $(basename "$PKGFILE"), lanjut paket lain."
         done
-        
+    
         echo "===== IPK DOWNLOAD + INSTALL SELESAI ====="
-        
-    # ============================================================
-    # 11b. Install GitHub IPK Offline (OpenClash & Theme)
-    - name: Install GitHub IPK Offline
-      if: env.CHECK_BUILD_RESULT != 'true'
-      run: |
-        GITHUB_IPK_LIST=(
-          "https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk"
-          "https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk"
-        )
-        sudo mkdir -p /tmp/rootfs/tmp
-        sudo mkdir -p /tmp/rootfs/var/lock
-        for url in "${GITHUB_IPK_LIST[@]}"; do
-          fname=$(basename "$url")
-          echo "Downloading $fname ..."
-          wget -q -O "/tmp/rootfs/tmp/$fname" "$url" || true
-          sudo chroot /tmp/rootfs opkg install /tmp/$fname || true
-        done
 
     # ============================================================
     # 12. Unmount RootFS & Cleanup
