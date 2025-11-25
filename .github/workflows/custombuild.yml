@@ -195,7 +195,6 @@ jobs:
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
         #!/usr/bin/env bash
-        set -euo pipefail
     
         echo "===== START IPK DOWNLOAD + INSTALL (UNIFIED) ====="
     
