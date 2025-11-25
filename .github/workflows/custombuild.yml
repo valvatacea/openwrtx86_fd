@@ -269,14 +269,24 @@ jobs:
         fi
     
         cat $ROOTFS_DIR/etc/os-release
-        # cat $ROOTFS_DIR/etc/opkg/arch
         sudo chroot $ROOTFS_DIR uname -m
+
+        echo "=== Masuk ke chroot: $ROOTFS_DIR ==="
+        sudo chroot "$ROOTFS_DIR" /bin/sh -c "
+            echo '=== Update daftar paket opkg ==='
+            opkg update
         
-        for PKGFILE in "$IPK_DIR"/*.ipk; do
-          echo "→ Install: $(basename "$PKGFILE")"
-          sudo chroot "$ROOTFS_DIR" /bin/opkg install "/tmp/ipk/$(basename "$PKGFILE")" \
-            || echo "[WARN] Gagal install $(basename "$PKGFILE"), lanjut paket lain."
-        done
+            echo '=== Install paket yang dibutuhkan ==='
+            opkg install ${OPENWRT_PKGS[*]}
+        "
+        
+        echo "=== Selesai install paket ==="
+        
+        # for PKGFILE in "$IPK_DIR"/*.ipk; do
+        #   echo "→ Install: $(basename "$PKGFILE")"
+        #   sudo chroot "$ROOTFS_DIR" /bin/opkg install "/tmp/ipk/$(basename "$PKGFILE")" \
+        #     || echo "[WARN] Gagal install $(basename "$PKGFILE"), lanjut paket lain."
+        # done
     
         echo "===== IPK DOWNLOAD + INSTALL SELESAI ====="
 
