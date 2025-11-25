@@ -206,6 +206,15 @@ jobs:
             echo "WARNING: Paket $PKG tidak ditemukan di repo resmi maupun GitHub, skip."
           fi
         done
+        
+
+        # Debug: Tampilkan isi direktori IPK sebelum install
+        echo "DEBUG: Daftar file IPK di /tmp/rootfs/tmp/ipk"
+        if [ -d /tmp/rootfs/tmp/ipk ]; then
+          ls -lh /tmp/rootfs/tmp/ipk
+        else
+          echo "Direktori /tmp/rootfs/tmp/ipk tidak ada"
+        fi
     
         # Install IPKs yang berhasil di-download
         if compgen -G "/tmp/rootfs/tmp/ipk/*.ipk" > /dev/null; then
