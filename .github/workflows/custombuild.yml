@@ -160,7 +160,7 @@ jobs:
     - name: Install OpenWrt Packages Offline
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
-        set -eo pipefail
+        set -euo pipefail
         LATEST=${{ env.LATEST }}
         
         # Direktori IPK di rootfs
