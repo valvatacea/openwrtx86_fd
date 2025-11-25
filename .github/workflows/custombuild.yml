@@ -234,7 +234,7 @@ jobs:
         # Paket lain (normal install)
         OPENWRT_PKGS=(
             bash curl ca-bundle wget ip-full ruby ruby-yaml kmod-tun kmod-inet-diag unzip kmod-nft-tproxy luci-compat luci luci-base lsblk
-            collectd luci-app-statistics vnstat luci-app-vnstat
+            collectd luci-app-statistics vnstat
             nano htop mc ncdu 
             kmod-usb-storage block-mount kmod-fs-ext4 kmod-fs-exfat ksmbd-server kmod-usb-net kmod-usb-net-rndis usbutils
         )
