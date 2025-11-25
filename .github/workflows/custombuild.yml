@@ -99,7 +99,6 @@ jobs:
     - name: Download OpenWrt Image
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
-        set -euo pipefail
         cd $GITHUB_WORKSPACE
         LATEST=${{ env.LATEST }}
         IMG_URL="https://downloads.openwrt.org/releases/${LATEST}/targets/x86/64/generic-ext4-combined.img.gz"
