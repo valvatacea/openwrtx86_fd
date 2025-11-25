@@ -164,11 +164,11 @@ jobs:
         # Resize partition 2 to 100%
         sudo parted "${LOOP}" -s resizepart 2 100%
         sudo partprobe "${LOOP}" || true
-        sleep 1
+        sleep 5
     
         # Check & resize filesystem
         sudo e2fsck -fy "${LOOP}p2" || true
-        sudo resize2fs "${LOOP}p2"
+        sudo resize2fs -f "${LOOP}p2"
 
     # ============================================================
     # 8. Debug Image Size After Resize
