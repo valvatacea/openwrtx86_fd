@@ -182,93 +182,22 @@ jobs:
                 option interface 'lan'
                 option ignore '1'
         EOF
-
-    # ============================================================
-    # 11a. Remove dnsmasq from RootFS
-    - name: Remove dnsmasq
-      if: env.CHECK_BUILD_RESULT != 'true'
-      run: |
-        # Pastikan var/lock ada
-        sudo mkdir -p /tmp/rootfs/var/lock
-        
-        echo "DEBUG: Removing dnsmasq package from rootfs"
-        sudo chroot /tmp/rootfs opkg remove dnsmasq --force-depends || true
     
     # ============================================================
-    # 11b. Install OpenWrt Packages Offline (Unified)
+    # 11. Install OpenWrt Packages Offline (Unified)
     - name: Install OpenWrt Packages Offline
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
-        #!/usr/bin/env bash
-        
         ROOTFS_DIR="/tmp/rootfs"
-        IPK_DIR="$ROOTFS_DIR/tmp/ipk"
-        
-        # Versi OpenWrt
-        LATEST="${LATEST:-24.10.4}"
-        
-        # Buat folder IPK konsisten
-        mkdir -p "$IPK_DIR"
-        chmod 777 "$IPK_DIR"
-        
-        # Paket yang ingin diinstall dari repo
+    
+        # Paket lain (normal install)
         OPENWRT_PKGS=(
-            dnsmasq-full luci luci-base luci-compat bash curl ca-bundle ipset ip-full
-            ruby ruby-yaml unzip iptables kmod-ipt-nat iptables-mod-tproxy iptables-mod-extra
-            kmod-tun ip6tables-mod-nat kmod-inet-diag kmod-nft-tproxy kmod-usb-net-rndis
-            kmod-usb-net-rtl8xxxu block-mount lsblk
-            luci-app-openclash luci-theme-alpha
+            curl
+            bash
+            ca-bundle
+            ipset
         )
-        
-        # Subfolder repositori OpenWrt
-        SUBDIRS=("base" "packages" "luci" "routing" "telephony")
-        
-        # Fallback GitHub untuk paket tertentu
-        declare -A GITHUB_FALLBACK
-        GITHUB_FALLBACK["ca-bundle"]="https://github.com/openwrt/packages/releases/download/ca-bundle_20231010_all.ipk"
-        GITHUB_FALLBACK["dnsmasq-full"]="https://github.com/openwrt/packages/releases/download/dnsmasq-full_2.90-r4_x86_64.ipk"
-        GITHUB_FALLBACK["luci-app-openclash"]="https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk"
-        GITHUB_FALLBACK["luci-theme-alpha"]="https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk"
-        
-        echo "===== START IPK DOWNLOAD + INSTALL (UNIFIED) ====="
-        
-        # Download paket dari repo / fallback
-        for PKG in "${OPENWRT_PKGS[@]}"; do
-            FOUND=0
-            echo "-----------------------------------------------------"
-            echo "[INFO] Mencari paket: $PKG"
-        
-            # Cari di repositori resmi
-            for S in "${SUBDIRS[@]}"; do
-                FILELIST_URL="https://downloads.openwrt.org/releases/$LATEST/packages/x86_64/$S/Packages"
-                if curl -fs "$FILELIST_URL" >/dev/null 2>&1; then
-                    PKGFILE=$(curl -fs "$FILELIST_URL" \
-                        | awk -v pkg="$PKG" 'BEGIN{f=0} /^Package: /{f=($2==pkg)?1:0} f && /^Filename: /{print $2; exit}')
-                    if [[ -n "$PKGFILE" ]]; then
-                        FILEURL="https://downloads.openwrt.org/releases/$LATEST/packages/x86_64/$S/$PKGFILE"
-                        echo "[INFO] Paket ditemukan: $FILEURL"
-                        wget -q -O "$IPK_DIR/$(basename "$PKGFILE")" "$FILEURL" && FOUND=1 && break \
-                            || echo "[ERROR] Gagal download $PKGFILE, lanjut paket lain"
-                    fi
-                fi
-            done
-        
-            # Fallback ke GitHub
-            if [[ $FOUND -eq 0 ]] && [[ -n "${GITHUB_FALLBACK[$PKG]:-}" ]]; then
-                FILEURL="${GITHUB_FALLBACK[$PKG]}"
-                echo "[INFO] Fallback: Downloading $PKG from GitHub $FILEURL"
-                wget -q -O "$IPK_DIR/$(basename "$FILEURL")" "$FILEURL" && FOUND=1 \
-                    || echo "[ERROR] Gagal download $PKG dari GitHub, lanjut paket lain"
-            fi
-        
-            [[ $FOUND -eq 0 ]] && echo "[WARN] Paket $PKG tidak ditemukan, skip"
-        done
-        
-        # Debug: daftar IPK
-        echo "[DEBUG] File IPK di $IPK_DIR:"
-        ls -lh "$IPK_DIR" || true
-        
-        # --- Persiapan chroot ---
+    
         echo "=== Persiapan resolv.conf sementara ==="
         sudo rm -f "$ROOTFS_DIR/etc/resolv.conf"
         sudo sh -c "echo 'nameserver 8.8.8.8' > $ROOTFS_DIR/etc/resolv.conf"
@@ -277,35 +206,27 @@ jobs:
         sudo mount --bind /proc "$ROOTFS_DIR/proc"
         sudo mount --bind /sys "$ROOTFS_DIR/sys"
         
-        # Backup dan pakai repo HTTP sementara
         sudo cp "$ROOTFS_DIR/etc/opkg/distfeeds.conf" "$ROOTFS_DIR/etc/opkg/distfeeds.conf.bak"
         sudo sed -i 's|https://downloads.openwrt.org|http://downloads.openwrt.org|g' "$ROOTFS_DIR/etc/opkg/distfeeds.conf"
-        
-        # --- Install paket online via opkg ---
+    
         sudo chroot "$ROOTFS_DIR" /bin/sh -c "
-            echo '=== Update daftar paket opkg ==='
-            opkg update
-        
-            echo '=== Install paket dari repo online ==='
+            echo '=== Update opkg ==='
+            opkg update || true
+    
+            echo '=== Install dnsmasq-full dengan force-overwrite ==='
+            opkg install dnsmasq-full --force-overwrite || true
+    
+            echo '=== Install paket normal ==='
             opkg install ${OPENWRT_PKGS[*]} || true
         "
         
-        # --- Install semua IPK lokal / fallback ---
-        for PKGFILE in "$IPK_DIR"/*.ipk; do
-            echo "→ Install: $(basename "$PKGFILE")"
-            sudo chroot "$ROOTFS_DIR" /bin/opkg install "/tmp/ipk/$(basename "$PKGFILE")" \
-                || echo "[WARN] Gagal install $(basename "$PKGFILE"), lanjut paket lain."
-        done
-        
-        # Restore distfeeds.conf asli
         sudo mv "$ROOTFS_DIR/etc/opkg/distfeeds.conf.bak" "$ROOTFS_DIR/etc/opkg/distfeeds.conf"
-        
-        # Cleanup
+    
         sudo umount "$ROOTFS_DIR/proc" || true
         sudo umount "$ROOTFS_DIR/sys" || true
         sudo rm -f "$ROOTFS_DIR/etc/resolv.conf"
-        
-        echo "===== IPK DOWNLOAD + INSTALL SELESAI ====="
+    
+        echo "===== INSTALL SELESAI ====="
 
     # ============================================================
     # 12. Unmount RootFS & Cleanup
