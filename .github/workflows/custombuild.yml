@@ -235,8 +235,6 @@ jobs:
             lxde-core lxdm xterm
         )
         
-        opkg update
-        
         # Array link IPK (akan di-download DALAM chroot)
         IPK_LINKS=(
             "https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk"
