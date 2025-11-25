@@ -163,7 +163,7 @@ jobs:
     
         # Resize partition 2 to 100%
         sudo parted "${LOOP}" -s resizepart 2 100%
-        sudo partprobe "${LOOP}p2" || true
+        sudo partprobe "${LOOP}" || true
         sleep 1
     
         # Check & resize filesystem
