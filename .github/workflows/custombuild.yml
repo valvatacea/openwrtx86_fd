@@ -214,7 +214,7 @@ jobs:
         )
     
         # Subfolder repositori OpenWrt
-        SUBDIRS=("base" "packages" "luci" "kernel")
+        SUBDIRS=("base" "packages" "luci" "kernel" "routing" "telephony")
     
         # Fallback GitHub untuk paket tertentu
         declare -A GITHUB_FALLBACK
@@ -234,12 +234,13 @@ jobs:
           for S in "${SUBDIRS[@]}"; do
             FILELIST_URL="https://downloads.openwrt.org/releases/$LATEST/packages/x86_64/$S/Packages"
             if curl -fs "$FILELIST_URL" >/dev/null 2>&1; then
-              PKGFILE=$(curl -fs "$FILELIST_URL" | grep -A5 "^Package: $PKG$" | grep "^Filename:" | awk '{print $2}' || true)
-              if [[ -n "${PKGFILE:-}" ]]; then
-                FILEURL="https://downloads.openwrt.org/releases/$LATEST/packages/x86_64/$S/$PKGFILE"
-                echo "[INFO] Paket ditemukan: $FILEURL"
-                wget -q -P tmp-ipk "$FILEURL" && FOUND=1 && break || echo "[ERROR] Gagal download $PKGFILE"
-              fi
+                PKGFILE=$(curl -fs "$FILELIST_URL" \
+                    | awk -v pkg="$PKG" 'BEGIN{f=0} /^Package: /{f=($2==pkg)?1:0} f && /^Filename: /{print $2; exit}')
+                if [[ -n "$PKGFILE" ]]; then
+                    FILEURL="https://downloads.openwrt.org/releases/$LATEST/$PKGFILE"
+                    echo "[INFO] Paket ditemukan: $FILEURL"
+                    wget -q -P tmp-ipk "$FILEURL" && FOUND=1 && break || echo "[ERROR] Gagal download $PKGFILE"
+                fi
             fi
           done
     
