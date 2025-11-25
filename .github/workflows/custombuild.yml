@@ -57,16 +57,28 @@ jobs:
     
     # ============================================================
     # 4b. Cache APT package lists (mempercepat apt-get update)
-    - name: Cache APT lists
-      id: aptlists
+    # Save APT sources metadata (safe)
+    - name: Export APT Sources Metadata
+      id: aptmeta
+      if: env.CHECK_BUILD_RESULT != 'true'
+      run: |
+        sudo apt-get update -o Dir::Etc::sourcelist="sources.list" \
+                             -o Dir::Etc::sourceparts="-" \
+                             -o APT::Get::List-Cleanup="0"
+        mkdir -p apt-metadata
+        sudo cp -r /var/lib/apt/lists/* apt-metadata/ || true
+        sudo chown -R $USER:$USER apt-metadata
+    
+    # Cache APT metadata (safe files only)
+    - name: Cache APT metadata
+      id: aptcache
       if: env.CHECK_BUILD_RESULT != 'true'
       uses: actions/cache@v4
       with:
-        path: |
-          /var/lib/apt/lists
-        key: apt-lists-${{ runner.os }}-${{ env.today }}
+        path: apt-metadata
+        key: apt-meta-${{ runner.os }}-${{ env.today }}
         restore-keys: |
-          apt-lists-${{ runner.os }}-
+          apt-meta-${{ runner.os }}-
     
     # ============================================================
     # 4c. Debug cache
