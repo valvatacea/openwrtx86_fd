@@ -209,6 +209,10 @@ jobs:
                 option interface 'lan'
                 option ignore '1'
         EOF
+        
+        cat | sudo tee /tmp/rootfs/etc/banner <<'EOF'
+        
+        EOF
     
     # ============================================================
     # 11. Install OpenWrt Packages
