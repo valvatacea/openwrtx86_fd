@@ -271,7 +271,7 @@ jobs:
     
         for PKGFILE in "$IPK_DIR"/*.ipk; do
           echo "→ Install: $(basename "$PKGFILE")"
-          chroot "$ROOTFS_DIR" /bin/opkg install "/tmp/ipk/$(basename "$PKGFILE")" \
+          sudo chroot "$ROOTFS_DIR" /bin/opkg install "/tmp/ipk/$(basename "$PKGFILE")" \
             || echo "[WARN] Gagal install $(basename "$PKGFILE"), lanjut paket lain."
         done
     
