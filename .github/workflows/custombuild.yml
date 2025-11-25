@@ -153,13 +153,13 @@ jobs:
         IMG_NAME="openwrt-x86-64-combined-ext4.img"
         TARGET_SIZE="250M"
     
+        # Resize raw image terlebih dahulu (sebelum losetup)
+        sudo qemu-img resize -f raw "$IMG_NAME" $TARGET_SIZE
+            
         # Attach loop device & auto map partitions
         LOOP=$(sudo losetup -f --show -P "$IMG_NAME")
         echo "Using loop device: $LOOP"
         echo "LOOP=$LOOP" >> $GITHUB_ENV
-    
-        # Resize raw image
-        sudo qemu-img resize -f raw "$IMG_NAME" $TARGET_SIZE
     
         # Resize partition 2 to 100%
         sudo parted "${LOOP}" -s resizepart 2 100%
