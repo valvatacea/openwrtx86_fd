@@ -269,6 +269,9 @@ jobs:
           exit 1
         fi
     
+    
+        sudo chroot $ROOTFS_DIR uname -m
+        
         for PKGFILE in "$IPK_DIR"/*.ipk; do
           echo "→ Install: $(basename "$PKGFILE")"
           sudo chroot "$ROOTFS_DIR" /bin/opkg install "/tmp/ipk/$(basename "$PKGFILE")" \
