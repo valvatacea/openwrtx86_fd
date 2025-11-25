@@ -162,8 +162,8 @@ jobs:
         sudo qemu-img resize -f raw "$IMG_NAME" $TARGET_SIZE
     
         # Resize partition 2 to 100%
-        sudo parted "${LOOP}" -s resizepart 2 100%
-        sudo partprobe "${LOOP}" || true
+        sudo parted "${LOOP}p2" -s resizepart 2 100%
+        sudo partprobe "${LOOP}p2" || true
         sleep 1
     
         # Check & resize filesystem
