@@ -203,6 +203,7 @@ jobs:
         ROOTFS_DIR="/tmp/rootfs"
         IPK_DIR="$ROOTFS_DIR/tmp/ipk"
         mkdir -p "$IPK_DIR" tmp-ipk
+        chmod 777 tmp-ipk
     
         # Paket OpenWrt yang ingin diinstall
         OPENWRT_PKGS=(
@@ -239,7 +240,9 @@ jobs:
                 if [[ -n "$PKGFILE" ]]; then
                     FILEURL="https://downloads.openwrt.org/releases/$LATEST/$PKGFILE"
                     echo "[INFO] Paket ditemukan: $FILEURL"
-                    wget -q -P tmp-ipk "$FILEURL" && FOUND=1 && break || echo "[ERROR] Gagal download $PKGFILE"
+                    wget -q -O "tmp-ipk/$(basename "$PKGFILE")" "$FILEURL" \
+                      && FOUND=1 && break \
+                      || echo "[ERROR] Gagal download $PKGFILE, lanjut paket lain"
                 fi
             fi
           done
@@ -248,7 +251,8 @@ jobs:
           if [[ $FOUND -eq 0 ]] && [[ -n "${GITHUB_FALLBACK[$PKG]:-}" ]]; then
             FILEURL="${GITHUB_FALLBACK[$PKG]}"
             echo "[INFO] Fallback: Downloading $PKG from GitHub $FILEURL"
-            wget -q -P tmp-ipk "$FILEURL" && FOUND=1 || echo "[ERROR] Gagal download $PKG dari GitHub"
+            wget -q -O "tmp-ipk/$(basename "$FILEURL")" "$FILEURL" && FOUND=1 \
+              || echo "[ERROR] Gagal download $PKG dari GitHub, lanjut paket lain"
           fi
     
           [[ $FOUND -eq 0 ]] && echo "[WARN] Paket $PKG tidak ditemukan, skip"
