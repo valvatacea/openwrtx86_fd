@@ -194,6 +194,12 @@ jobs:
         OPENWRT_PKGS=(
             bash curl ca-bundle wget ip-full ruby ruby-yaml kmod-tun kmod-inet-diag unzip kmod-nft-tproxy luci-compat luci luci-base lsblk
         )
+        
+        # Array link IPK (akan di-download DALAM chroot)
+        IPK_LINKS=(
+            "http://downloads.openwrt.org/releases/24.10.4/packages/x86_64/base/somepackage_1.0.0_x86_64.ipk"
+            "http://downloads.openwrt.org/releases/24.10.4/packages/x86_64/base/anotherpackage_2.0.0_x86_64.ipk"
+        )
     
         echo "=== Persiapan resolv.conf sementara ==="
         sudo rm -f "$ROOTFS_DIR/etc/resolv.conf"
@@ -219,6 +225,20 @@ jobs:
     
             echo '=== Install paket normal ==='
             opkg install ${OPENWRT_PKGS[*]} || true
+        "
+        
+        echo "=== Download & Install IPK dari array link (inside chroot) ==="
+        sudo chroot "$ROOTFS_DIR" /bin/sh -c "
+            mkdir -p /tmp/ipk
+    
+            for link in ${IPK_LINKS[@]}; do
+                fname=\$(basename \$link)
+                echo \"Downloading \$fname ...\"
+                wget -O /tmp/ipk/\$fname \$link || echo \"GAGAL: \$fname\"
+            done
+    
+            echo 'Install semua IPK'
+            opkg install /tmp/ipk/*.ipk || true
         "
         
         sudo mv "$ROOTFS_DIR/etc/opkg/distfeeds.conf.bak" "$ROOTFS_DIR/etc/opkg/distfeeds.conf"
