@@ -152,7 +152,7 @@ jobs:
         sudo mkdir -p /tmp/rootfs/var/lock
         
         echo "DEBUG: Removing dnsmasq package from rootfs"
-        sudo chroot /tmp/rootfs opkg remove dnsmasq || true
+        sudo chroot /tmp/rootfs opkg remove dnsmasq --force-depends || true
     
     
     # ============================================================
