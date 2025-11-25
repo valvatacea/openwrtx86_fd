@@ -238,7 +238,7 @@ jobs:
                 if [[ -n "$PKGFILE" ]]; then
                     FILEURL="https://downloads.openwrt.org/releases/$LATEST/packages/x86_64/$S/$PKGFILE"
                     echo "[INFO] Paket ditemukan: $FILEURL"
-                    wget -q -O "tmp-ipk/$(basename "$PKGFILE")" "$FILEURL" \
+                    # wget -q -O "tmp-ipk/$(basename "$PKGFILE")" "$FILEURL" \
                       && FOUND=1 && break \
                       || echo "[ERROR] Gagal download $PKGFILE, lanjut paket lain"
                 fi
