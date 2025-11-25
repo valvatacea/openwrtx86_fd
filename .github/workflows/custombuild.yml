@@ -162,7 +162,7 @@ jobs:
         echo "LOOP=$LOOP" >> $GITHUB_ENV
     
         # Resize partition 2 to 100%
-        sudo parted "${LOOP}" -s resizepart 2 100%
+        sudo parted "${LOOP}" -s unit MiB resizepart 2 100%
         sudo partprobe "${LOOP}" || true
         sleep 5
         
