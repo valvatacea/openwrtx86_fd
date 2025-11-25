@@ -209,9 +209,11 @@ jobs:
         sudo mkdir -p "$ROOTFS_DIR/var/lock"
         sudo mkdir -p "$ROOTFS_DIR/var/run"
         
-        echo "=== Mount /proc dan /sys untuk chroot ==="
+        echo "=== Mount /proc, /sys, /dev ==="
         sudo mount --bind /proc "$ROOTFS_DIR/proc"
         sudo mount --bind /sys "$ROOTFS_DIR/sys"
+        sudo mount --bind /dev "$ROOTFS_DIR/dev"
+        sudo mount --bind /dev/pts "$ROOTFS_DIR/dev/pts" || true
         
         sudo cp "$ROOTFS_DIR/etc/opkg/distfeeds.conf" "$ROOTFS_DIR/etc/opkg/distfeeds.conf.bak"
         sudo sed -i 's|https://downloads.openwrt.org|http://downloads.openwrt.org|g' "$ROOTFS_DIR/etc/opkg/distfeeds.conf"
@@ -243,6 +245,8 @@ jobs:
         
         sudo mv "$ROOTFS_DIR/etc/opkg/distfeeds.conf.bak" "$ROOTFS_DIR/etc/opkg/distfeeds.conf"
     
+        sudo umount "$ROOTFS_DIR/dev/pts" || true
+        sudo umount "$ROOTFS_DIR/dev" || true
         sudo umount "$ROOTFS_DIR/proc" || true
         sudo umount "$ROOTFS_DIR/sys" || true
         sudo rm -f "$ROOTFS_DIR/etc/resolv.conf"
