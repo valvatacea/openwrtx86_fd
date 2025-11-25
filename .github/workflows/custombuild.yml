@@ -57,14 +57,14 @@ jobs:
     
     # ============================================================
     # 4b. Cache system dependencies (APT) - refresh tiap hari
+    #     Menggunakan actions/cache@v4
     - name: Cache system dependencies
       id: depscache
       if: env.CHECK_BUILD_RESULT != 'true'
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cache/apt
-          /var/cache/apt
         key: deps-cache-${{ env.today }}
         restore-keys: |
           deps-cache-
@@ -79,9 +79,9 @@ jobs:
         if [ "${{ steps.depscache.outputs.cache-hit }}" = "true" ]; then
           echo "Status       : Menggunakan cache."
         else
-          echo "Status       : TIDAK menemukan cache. Menghasilkan cache baru."
+          echo "Status       : TIDAK menemukan cache. Membuat cache baru."
         fi
-
+    
     # ============================================================
     # 4d. Install dependencies
     - name: Install dependencies
@@ -93,7 +93,7 @@ jobs:
           build-essential gawk python3 curl git cloud-guest-utils \
           util-linux syslinux extlinux mtools grub-pc-bin \
           bzip2 lzma binfmt-support qemu-user-static kpartx
-
+          
     # ============================================================
     # 5. Download OpenWrt Image
     - name: Download OpenWrt Image
