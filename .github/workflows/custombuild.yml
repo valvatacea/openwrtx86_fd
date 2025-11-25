@@ -48,7 +48,42 @@ jobs:
           require('fs').appendFileSync(process.env.GITHUB_ENV, `CHECK_BUILD_RESULT=${exists ? "true" : "false"}\n`);
 
     # ============================================================
-    # 4. Install dependencies
+    # 4a. Set today's date (dipakai untuk cache key harian)
+    - name: Set today's date
+      id: date
+      if: env.CHECK_BUILD_RESULT != 'true'
+      run: |
+        echo "today=$(date +%Y-%m-%d)" >> $GITHUB_ENV
+    
+    # ============================================================
+    # 4b. Cache system dependencies (APT) - refresh tiap hari
+    - name: Cache system dependencies
+      id: depscache
+      if: env.CHECK_BUILD_RESULT != 'true'
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/apt
+          /var/cache/apt
+        key: deps-cache-${{ env.today }}
+        restore-keys: |
+          deps-cache-
+    
+    # ============================================================
+    # 4c. Debug informasi cache yang digunakan
+    - name: Debug cache usage
+      if: env.CHECK_BUILD_RESULT != 'true'
+      run: |
+        echo "Cache Key    : deps-cache-${{ env.today }}"
+        echo "Cache Hit?   : ${{ steps.depscache.outputs.cache-hit }}"
+        if [ "${{ steps.depscache.outputs.cache-hit }}" = "true" ]; then
+          echo "Status       : Menggunakan cache."
+        else
+          echo "Status       : TIDAK menemukan cache. Menghasilkan cache baru."
+        fi
+
+    # ============================================================
+    # 4d. Install dependencies
     - name: Install dependencies
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
