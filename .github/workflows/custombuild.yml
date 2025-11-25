@@ -197,14 +197,21 @@ jobs:
         echo "DEBUG: Top-level rootfs directories:"
         sudo find /tmp/rootfs -maxdepth 1 -type d | sed 's/^/ - /'
         cat | sudo tee /tmp/rootfs/etc/config/network <<'EOF'
+        config interface 'loopback'
+            option ifname 'lo'
+            option proto 'static'
+            option ipaddr '127.0.0.1'
+            option netmask '255.0.0.0'
+
         config interface 'lan'
             option device 'eth0'
             option proto 'static'
             option ipaddr '192.168.1.2'
             option netmask '255.255.255.0'
+            
         config interface 'usbwan'
+            option device 'usb0'
             option proto 'dhcp'
-            option ifname 'usb0'
         EOF
         
         cat | sudo tee /tmp/rootfs/etc/config/dhcp <<'EOF'
