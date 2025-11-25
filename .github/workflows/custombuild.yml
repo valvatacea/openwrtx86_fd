@@ -202,6 +202,10 @@ jobs:
         sudo rm -f "$ROOTFS_DIR/etc/resolv.conf"
         sudo sh -c "echo 'nameserver 8.8.8.8' > $ROOTFS_DIR/etc/resolv.conf"
         
+        echo "=== Fix missing /var/lock dan /var/run ==="
+        sudo mkdir -p "$ROOTFS_DIR/var/lock"
+        sudo mkdir -p "$ROOTFS_DIR/var/run"
+        
         echo "=== Mount /proc dan /sys untuk chroot ==="
         sudo mount --bind /proc "$ROOTFS_DIR/proc"
         sudo mount --bind /sys "$ROOTFS_DIR/sys"
