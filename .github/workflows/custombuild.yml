@@ -214,7 +214,7 @@ jobs:
         )
     
         # Subfolder repositori OpenWrt
-        SUBDIRS=("base" "packages" "luci" "kernel" "routing" "telephony")
+        SUBDIRS=("base" "packages" "luci" "routing" "telephony")
     
         # Fallback GitHub untuk paket tertentu
         declare -A GITHUB_FALLBACK
@@ -237,7 +237,7 @@ jobs:
                 PKGFILE=$(curl -fs "$FILELIST_URL" \
                     | awk -v pkg="$PKG" 'BEGIN{f=0} /^Package: /{f=($2==pkg)?1:0} f && /^Filename: /{print $2; exit}')
                 if [[ -n "$PKGFILE" ]]; then
-                    FILEURL="https://downloads.openwrt.org/releases/$LATEST/$PKGFILE"
+                    FILEURL="https://downloads.openwrt.org/releases/$LATEST/packages/x86_64/$S/$PKGFILE"
                     echo "[INFO] Paket ditemukan: $FILEURL"
                     wget -q -O "tmp-ipk/$(basename "$PKGFILE")" "$FILEURL" \
                       && FOUND=1 && break \
