@@ -165,10 +165,18 @@ jobs:
         sudo parted "${LOOP}" -s resizepart 2 100%
         sudo partprobe "${LOOP}" || true
         sleep 5
+        
+        # Double-check partition size
+        PART_SIZE=$(sudo blockdev --getsize64 "${LOOP}p2")
+        echo "Partition 2 size: $PART_SIZE bytes"
     
         # Check & resize filesystem
         sudo e2fsck -fy "${LOOP}p2" || true
         sudo resize2fs -f "${LOOP}p2"
+        
+        # Verify
+        FS_SIZE=$(sudo dumpe2fs "${LOOP}p2" | grep 'Block count')
+        echo "Filesystem info after resize: $FS_SIZE"
 
     # ============================================================
     # 8. Debug Image Size After Resize
