@@ -154,30 +154,37 @@ jobs:
         echo "DEBUG: Removing dnsmasq package from rootfs"
         sudo chroot /tmp/rootfs opkg remove dnsmasq --force-depends || true
     
-    
     # ============================================================
-    # 10. Install OpenWrt Packages Offline (Fleksibel)
+    # 10. Install OpenWrt Packages Offline + GitHub Fallback
     - name: Install OpenWrt Packages Offline
       if: env.CHECK_BUILD_RESULT != 'true'
       run: |
-        # set -euo pipefail
         LATEST=${{ env.LATEST }}
-        
+    
         # Direktori IPK di rootfs
         sudo mkdir -p /tmp/rootfs/tmp/ipk
     
         # Daftar paket OpenWrt yang ingin diinstall
-        OPENWRT_PKGS=(dnsmasq-full luci luci-base luci-compat bash curl ca-bundle ipset ip-full ruby ruby-yaml unzip iptables kmod-ipt-nat iptables-mod-tproxy iptables-mod-extra kmod-tun ip6tables-mod-nat kmod-inet-diag kmod-nft-tproxy kmod-usb-net-rndis kmod-usb-net-rtl8xxxu block-mount lsblk)
+        OPENWRT_PKGS=(
+          dnsmasq-full luci luci-base luci-compat bash curl ca-bundle ipset ip-full 
+          ruby ruby-yaml unzip iptables kmod-ipt-nat iptables-mod-tproxy iptables-mod-extra 
+          kmod-tun ip6tables-mod-nat kmod-inet-diag kmod-nft-tproxy kmod-usb-net-rndis 
+          kmod-usb-net-rtl8xxxu block-mount lsblk
+        )
     
-        # Ambil semua subdirektori di packages/x86_64
-        PKG_DIRS=$(curl -s "https://downloads.openwrt.org/releases/${LATEST}/packages/x86_64/" \
-                   | grep -Po '(?<=href=")[^"]+/' | tr -d '/')
+        # Subfolder repositori yang akan dicari
+        SUBDIRS=("base" "packages" "luci" "kernel")
+    
+        # Fallback URL GitHub untuk paket yang tidak ditemukan di repo resmi
+        declare -A GITHUB_FALLBACK
+        GITHUB_FALLBACK["dnsmasq-full"]="https://github.com/openwrt/packages/releases/download/dnsmasq-full_2.90-r4_x86_64.ipk"
+        GITHUB_FALLBACK["ca-bundle"]="https://github.com/openwrt/packages/releases/download/ca-bundle_20231010_all.ipk"
+        # Tambahkan paket lain jika ada di GitHub
     
         for PKG in "${OPENWRT_PKGS[@]}"; do
           FOUND=0
-          for DIR in $PKG_DIRS; do
+          for DIR in "${SUBDIRS[@]}"; do
             URL="https://downloads.openwrt.org/releases/${LATEST}/packages/x86_64/$DIR/"
-            # Cari file .ipk sesuai paket
             FNAME=$(curl -s "$URL" | grep -Po "${PKG}_[0-9a-zA-Z\.\-\+]+_x86_64\.ipk" | head -1)
             if [ -n "$FNAME" ]; then
               echo "Downloading $FNAME from $DIR ..."
@@ -186,12 +193,21 @@ jobs:
               break
             fi
           done
+    
+          # Jika tidak ditemukan di repo resmi, cek GitHub fallback
+          if [ $FOUND -eq 0 ] && [ ! -z "${GITHUB_FALLBACK[$PKG]}" ]; then
+            URL="${GITHUB_FALLBACK[$PKG]}"
+            echo "Fallback: Downloading $PKG from GitHub ..."
+            wget -q -P /tmp/rootfs/tmp/ipk "$URL" || true
+            FOUND=1
+          fi
+    
           if [ $FOUND -eq 0 ]; then
-            echo "WARNING: Paket $PKG tidak ditemukan di semua subdir"
+            echo "WARNING: Paket $PKG tidak ditemukan di repo resmi maupun GitHub, skip."
           fi
         done
     
-        # Install IPKs hanya jika ada
+        # Install IPKs yang berhasil di-download
         if compgen -G "/tmp/rootfs/tmp/ipk/*.ipk" > /dev/null; then
           echo "DEBUG: Installing downloaded IPKs ..."
           sudo chroot /tmp/rootfs opkg install /tmp/ipk/*.ipk || true
