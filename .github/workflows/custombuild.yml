@@ -271,15 +271,22 @@ jobs:
         cat $ROOTFS_DIR/etc/os-release
         sudo chroot $ROOTFS_DIR uname -m
 
-        echo "=== Mounting network and system files for chroot ==="
-        sudo rm -f /tmp/rootfs/etc/resolv.conf
-        sudo touch /tmp/rootfs/etc/resolv.conf
-        sudo sh -c 'echo "nameserver 8.8.8.8" > /tmp/rootfs/etc/resolv.conf'
-        sudo mount --bind /etc/resolv.conf "$ROOTFS_DIR/etc/resolv.conf"
+        echo "=== Persiapan resolv.conf sementara ==="
+        sudo rm -f "$ROOTFS_DIR/etc/resolv.conf"
+        sudo sh -c "echo 'nameserver 8.8.8.8' > $ROOTFS_DIR/etc/resolv.conf"
+        
+        echo "=== Mount /proc dan /sys untuk chroot ==="
         sudo mount --bind /proc "$ROOTFS_DIR/proc"
         sudo mount --bind /sys "$ROOTFS_DIR/sys"
         
-        echo "=== Masuk ke chroot: $ROOTFS_DIR ==="
+        echo "=== Gunakan repo HTTP sementara untuk menghindari SSL error ==="
+        # Backup file asli
+        sudo cp "$ROOTFS_DIR/etc/opkg/distfeeds.conf" "$ROOTFS_DIR/etc/opkg/distfeeds.conf.bak"
+        
+        # Ganti semua repo HTTPS ke HTTP
+        sudo sed -i 's|https://downloads.openwrt.org|http://downloads.openwrt.org|g' "$ROOTFS_DIR/etc/opkg/distfeeds.conf"
+        
+        echo "=== Masuk ke chroot dan install paket ==="
         sudo chroot "$ROOTFS_DIR" /bin/sh -c "
             echo '=== Update daftar paket opkg ==='
             opkg update
@@ -288,12 +295,15 @@ jobs:
             opkg install ${OPENWRT_PKGS[*]}
         "
         
-        echo "=== Selesai install paket ==="
+        echo "=== Restore distfeeds.conf asli (opsional) ==="
+        sudo mv "$ROOTFS_DIR/etc/opkg/distfeeds.conf.bak" "$ROOTFS_DIR/etc/opkg/distfeeds.conf"
         
-        echo "=== Optional: unmount /proc, /sys, resolv.conf ==="
+        echo "=== Unmount /proc, /sys, resolv.conf sementara ==="
         sudo umount "$ROOTFS_DIR/proc" || true
         sudo umount "$ROOTFS_DIR/sys" || true
-        sudo umount "$ROOTFS_DIR/etc/resolv.conf" || true
+        sudo rm -f "$ROOTFS_DIR/etc/resolv.conf"
+        
+        echo "=== Selesai install paket ==="
         
         # for PKGFILE in "$IPK_DIR"/*.ipk; do
         #   echo "→ Install: $(basename "$PKGFILE")"
