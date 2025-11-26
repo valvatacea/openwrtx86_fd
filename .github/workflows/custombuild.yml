@@ -275,6 +275,7 @@ jobs:
             collectd luci-app-statistics
             nano htop mc ncdu 
             kmod-usb-storage block-mount kmod-fs-ext4 kmod-fs-exfat ksmbd-server kmod-usb-net kmod-usb-net-rndis usbutils
+            luci-app-ttyd ttyd
         )
         
         # Array link IPK (akan di-download DALAM chroot)
