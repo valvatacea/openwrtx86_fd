@@ -281,7 +281,6 @@ jobs:
         # Array link IPK (akan di-download DALAM chroot)
         IPK_LINKS=(
             "https://github.com/derisamedia/luci-theme-alpha/releases/download/alpha-4.0.1-beta/luci-theme-alpha4_4.0.1-beta-12_all.ipk"
-            "https://github.com/vernesong/OpenClash/releases/download/v0.47.028/luci-app-openclash_0.47.028_all.ipk"
         )
     
         echo "=== Persiapan resolv.conf sementara ==="
@@ -329,13 +328,7 @@ jobs:
         sudo umount "$ROOTFS_DIR/dev" || true
         sudo umount "$ROOTFS_DIR/proc" || true
         sudo umount "$ROOTFS_DIR/sys" || true
-        sudo rm -f "$ROOTFS_DIR/etc/resolv.conf"
-        
-        cat | sudo tee ROOTFS_DIR/etc/resolv.conf <<'EOF'
-        search lan
-        nameserver 127.0.0.1
-        nameserver ::1
-        EOF
+        # sudo rm -f "$ROOTFS_DIR/etc/resolv.conf"
     
         echo "===== INSTALL SELESAI ====="
 
