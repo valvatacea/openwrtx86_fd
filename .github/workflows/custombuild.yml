@@ -205,27 +205,29 @@ jobs:
         sudo find /tmp/rootfs -maxdepth 1 -type d | sed 's/^/ - /'
         cat | sudo tee /tmp/rootfs/etc/config/network <<'EOF'
         config interface 'loopback'
-            option ifname 'lo'
+            option device 'lo'
             option proto 'static'
             option ipaddr '127.0.0.1'
             option netmask '255.0.0.0'
+        
         
         config device
             option name 'br-lan'
             option type 'bridge'
             list ports 'eth0'
         
+        
         config interface 'lan'
-            option ifname 'br-lan'
+            option device 'br-lan'
             option proto 'static'
             option ipaddr '192.168.1.2'
             option netmask '255.255.255.0'
             option gateway '192.168.1.1'
             list dns '192.168.1.1'
             list dns '8.8.8.8'
-            
+        
+        
         config interface 'usb0'
-            option ifname 'usbwan'
             option device 'usb0'
             option proto 'dhcp'
         EOF
