@@ -331,7 +331,7 @@ jobs:
         sudo umount "$ROOTFS_DIR/sys" || true
         sudo rm -f "$ROOTFS_DIR/etc/resolv.conf"
         
-        cat | sudo tee $ROOTFS_DIR/etc/resolv.conf <<'EOF'
+        cat | sudo tee ROOTFS_DIR/etc/resolv.conf <<'EOF'
         search lan
         nameserver 127.0.0.1
         nameserver ::1
